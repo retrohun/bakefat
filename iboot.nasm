@@ -71,67 +71,10 @@ cpu 8086
   times -(%1)+$ times 0 nop
 %endm
 
-PTYPE:  ; Partition type.
-.EMPTY equ 0
-.FAT12 equ 1
-.FAT16_LESS_THAN_32MIB equ 4
-.EXTENDED equ 5
-.FAT16 equ 6
-.HPFS_NTFS_EXFAT equ 7
-.FAT32 equ 0xb
-.FAT32_LBA equ 0xc
-.FAT16_LBA equ 0xe
-.EXTENDED_LBA equ 0xf
-.MINIX_OLD equ 0x80
-.MINIX equ 0x81
-.LINUX_SWAP equ 0x82
-.LINUX equ 0x83
-.LINUX_EXTENDED equ 0x85
-.LINUX_LVM equ 0x8e
-.LINUX_RAID_AUTO equ 0xfd
-.BBT equ 0xff  ; Using it as a placeholder.
-
 PSTATUS:  ; Partition status.
-.INACTIVE equ 0
 .ACTIVE equ 0x80
 
 BOOT_SIGNATURE equ 0xaa55  ; dw.
-
-; !! For partition_entry_lba to fill the CHS values properly, values from qemu-system-i386.
-pe_heads equ 16
-pe_secs equ 63
-
-; %1: status (PSTATUS.*: 0: inactive, 0x80: active (bootable))
-; %2: CHS head of first sector; %3: CHS cylinder and sector of first sector
-; %4: partition type (PTYPE.*)
-; %5: CHS head of last sector; %6: CHS cylinder and sector of last sector
-; %7: sector offset (LBA) of the first sector
-; %8: number of sectors
-%macro partition_entry 8
-  db (%1), (%2)
-  dw (%3)
-  db (%4), (%5)
-  dw (%6)
-  dd (%7), (%8)
-%endm
-; Like partition_entry, but sets all CHS values to 0.
-;
-; (The following is verified only if DOS is not booted from this drive.)
-; FreeDOS 1.0..1.3 displays a warning at boot time about a bad CHS value,
-; but it works. MS-DOS 6.22 doesn't care about CHS values here.
-;
-; !! Check and add compatibility with MS-DOS 5.00, 6.00 and 6.20. Works: 4.01, 5.00, 6.22, 7.x, 8.0.
-;
-; %1: status (PSTATUS.*: 0: inactive, 0x80: active (bootable))
-; %2: partition type (PTYPE.*)
-; %3: sector offset (LBA) of the first sector
-; %4: number of sectors
-%macro partition_entry_lba 4
-  partition_entry (%1), 0, 0, (%2), 0, 0, (%3), (%4)
-%endm
-%macro partition_entry_empty 0
-  partition_entry PSTATUS.INACTIVE, 0, 0, PTYPE.EMPTY, 0, 0, 0, 0  ; All NULs.
-%endm
 
 %macro fat_header 8  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_gap_sector_count.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
@@ -508,20 +451,7 @@ assert_at .header+0x1bc
 .reserved_word_0: dw 0
 .partition_1:
 assert_at .header+0x1be  ; Partition 1.
-;%if fat_32
-;.ptype: equ PTYPE.FAT32_LBA  ; Windows 95 OSR2 cannot read the filesystem if PTYPE.FAT16 is (incorrectly) specified here.
-;%else
-;.ptype: equ PTYPE.FAT16
-;%endif
-.ptype: equ PTYPE.BBT  ; Needs to be patched.
-.p_sector_count: equ 0  ; Needs to be patched.
-		partition_entry_lba PSTATUS.ACTIVE, .ptype, 0x3f, .p_sector_count
-assert_at .header+0x1ce  ; Partition 2.
-		partition_entry_empty
-assert_at .header+0x1de  ; Partition 3.
-		partition_entry_empty
-assert_at .header+0x1ee  ; Partition 4.
-		partition_entry_empty
+		times 4*0x10 db 0 ; Partition table consisting of 4 primary partitions.
 assert_at .header+0x1fe
 .boot_signature: dw BOOT_SIGNATURE
 assert_at .header+0x200
