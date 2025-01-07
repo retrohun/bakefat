@@ -472,30 +472,10 @@ assert_at .header+0x200
 		mov [bp-.header+.hidden_sector_count+2], es  ; High word of the partition start sector offset (LBA).
 %endif
 
-%if 0  ; .new_dipt not needed when booting from HDD.
-		push ss
-		pop es
-		mov bx, 0x1e<<2  ; Disk initialization parameter table vector (see below): https://stanislavs.org/helppc/int_1e.html
-		lds si, [ss:bx]
-  %if 0  ; Setup for the `int 0x19' reboot code below.
-		push ds
-		push si
-		push ss
-		push bx
-  %endif
-		mov di, -.org+.new_dipt
-		mov cx, 0xb  ; Copy 0xb bytes from the disk initialization parameter table (https://stanislavs.org/helppc/int_1e.html) to the beginning of .boot_code. Actually, it's 0xc bytes long (maybe copy more).
-		cld
-		rep movsb
-		push es
-		pop ds
-		sti
-%else
 		mov ds, ax
 		;mov es, ax  ; We set ES := 0 later for FAT16. FAT32 doesn't need it.
 		cld
 		sti
-%endif
 
 %if 0  ; Our mbr.boot_code has already done it. We save space here by omitting it.
 		xor di, di  ; Workaround for buggy BIOS.
@@ -666,19 +646,9 @@ assert_at .header+0x200
 		mov bx, 7
 		int 0x10
 		jmp short .next_msg_byte
-%if 0  ; Rebooting disabled, it is useless most of the time.
-		xor ax, ax
-		int 0x16  ; Wait for keystroke.
-		pop si
-		pop ds
-		pop word [si]  ; Restore offset of disk initialization parameter table vector.
-		pop word [si+2]  ; Restore segment of disk initialization parameter table vector.
-		int 0x19  ; Reboot.
-%else  ; Just die, don't try to reboot. It makes the code shorter.
 .halt:		cli
 .hang:		hlt
 		jmp .hang
-%endif
 		; Not reached.
 .found_both_sys_files:
 		mov ax, [0x51a]  ; AX := start cluster number of io.sys.
@@ -1038,7 +1008,7 @@ cpu 386
 		pop dx
 		add eax, [bp-.header+.var_data_start] ; data_start
 		; here, carry is cleared (unless parameters are wrong)
-.eoc:  ret
+.eoc:		ret
 
 ; Read a sector from disk, using LBA or CHS
 ; input: EAX - 32-bit DOS sector number
@@ -1077,7 +1047,7 @@ cpu 386
 		
 		xor bx, bx
 		mov ax, 0x201 ; read 1 sector. The 0x2 may have been modified to 0x42 in .use_ebios.
-.ebios:  mov si, sp  ; DS:SI points to disk address packet
+.ebios:		mov si, sp  ; DS:SI points to disk address packet
 		mov dl, [bp-.header+.drive_number] ; hard disk drive number
 		push es
 		push ds
@@ -1099,7 +1069,7 @@ cpu 386
 ; Prints nonempty string DS:SI (modifies AX BX SI), and then hangs (doesn't return).
 .boot_error:
 		mov bx, 7  ; !! What's wrong with `xor bx, bx'? Has the caller set it up?
-.next_byte: lodsb   ; get token
+.next_byte:	lodsb   ; get token
 		test al, al  ; end of string?
 		jz .hang0 
 		mov ah, 0xe  ; print it

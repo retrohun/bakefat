@@ -479,80 +479,10 @@ assert_at .header+0x200
 		xor ax, ax
 		mov ss, ax
 		mov sp, bp
-%if 0  ; Our mbr.boot_code has already done it. We save space here by omitting it.
-		les bx, [si+8]  ; Boot code in MBR has made DS:SI point to the partition entry. +8 is the start sector offset (LBA).
-		mov [bp-.header+.hidden_sector_count], bx
-		mov [bp-.header+.hidden_sector_count+2], es  ; High word of the partition start sector offset (LBA).
-%endif
-
-%if 0  ; .new_dipt not needed when booting from HDD.
-		push ss
-		pop es
-		mov bx, 0x1e<<2  ; Disk initialization parameter table vector (see below): https://stanislavs.org/helppc/int_1e.html
-		lds si, [ss:bx]
-  %if 0  ; Setup for the `int 0x19' reboot code below.
-		push ds
-		push si
-		push ss
-		push bx
-  %endif
-		mov di, -.org+.new_dipt
-		mov cx, 0xb  ; Copy 0xb bytes from the disk initialization parameter table (https://stanislavs.org/helppc/int_1e.html) to the beginning of .boot_code. Actually, it's 0xc bytes long (maybe copy more).
-		cld
-		rep movsb
-		push es
-		pop ds
-%else
 		mov ds, ax
 		;mov es, ax  ; We set ES := 0 later for FAT16. FAT32 doesn't need it.
 		cld
-%endif
-
 		sti
-
-%if 0  ; Our mbr.boot_code has already done it. We save space here by omitting it.
-		xor di, di  ; Workaround for buggy BIOS.
-		mov ah, 8  ; Read drive parameters.
-		mov [bp-.header+.drive_number], dl  ; .drive_number passed to the boot sector .boot_code by the MBR .boot_code in DL.
-		int 13h  ; BIOS syscall.
-		jc .jmp_fatal
-		and cx, byte 0x3f
-		mov [bp-.header+.sectors_per_track], cx
-		mov dl, dh
-		mov dh, 0
-		inc dx
-		mov [bp-.header+.head_count], dx
-		mov ah, 1  ; Get status of last drive operation. Needed after the AH == 8 call.
-		mov dl, [bp-.header+.drive_number]
-		int 13h  ; BIOS syscall.
-%endif
-
-%if 0  ; Not needed when booting from HDD.
-		; The disk initialization parameter table (or diskette
-		; parameter table) is used by BIOS when reading and writing
-		; floppy disks. It's a global table, DOS changes the pointer
-		; to it (int 1eh) before each flopppy disk read or write.
-		;
-		; More info:
-		;
-		; * https://retrocomputing.stackexchange.com/questions/30690/view-and-modify-active-diskette-parameter-table
-		; * https://stanislavs.org/helppc/int_1e.html
-		; * https://fd.lod.bz/rbil/interrup/bios/1e.html
-		; * http://www.ctyme.com/intr/rb-2445.htm
-		cli
-		mov byte [bp-.header+.new_dipt+9], 0xf  ; Set floppy head bounce delay in disk initialization parameter table. (in milliseconds to 0xf) Why? https://retrocomputing.stackexchange.com/q/31099
-		mov cx, [bp-.header+.sectors_per_track]
-		mov [bp-.header+.new_dipt+4], cl  ; Set sectors-per-track in disk initialization parameter table.
-		mov [bx+2], ds
-		mov word [bx], -.org+.new_dipt  ; Update pointer to disk initialization parameter table.
-		sti
-		mov ah, 0  ; Reset disk system.
-		mov dl, 0  ; Reset floppies only.
-		int 0x13  ; BIOS syscall.
-		jnc .ok
-.jmp_fatal:	jmp near .fatal
-.ok:
-%endif
 %endm  ; fat_boot_sector_common
 
 ; --- FAT16 boot sector.
@@ -674,19 +604,6 @@ assert_at .header+0x200
 ; Prints NUL-terminated message starting at SI, and halts.
 .fatal:
 		jmp strict near mbr.fatal+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-%if 0  ; Rebooting disabled, it is useless most of the time.
-		xor ax, ax
-		int 0x16  ; Wait for keystroke.
-		pop si
-		pop ds
-		pop word [si]  ; Restore offset of disk initialization parameter table vector.
-		pop word [si+2]  ; Restore segment of disk initialization parameter table vector.
-		int 0x19  ; Reboot.
-%elif 0  ; Just die, don't try to reboot. It makes the code shorter.
-.halt:		cli
-.hang:		hlt
-		jmp .hang
-%endif
 		; Not reached.
 .found_both_sys_files:
 		mov ax, [0x51a]  ; AX := start cluster number of io.sys.
@@ -770,35 +687,7 @@ assert_at .header+0x200
 		push ax  ; Save.
 		push dx  ; Save.
 		push cx  ; Save.
-%if 0
-		push bx  ; Save.
-		mov bx, [bp-.header+.sectors_per_track]
-		xchg cx, ax  ; CX := AX (save it for later), AX := junk.
-		xor ax, ax
-		cmp dx, bx
-		jb .small
-		xchg ax, dx
-		div bx  ; We neeed this extra division if io.sys is near the end of the 2 GiB filesystem (with 32 KiB clusters, sectors_per_track==63, sector_number =~ 258+65518*64).
-.small:		xchg ax, cx
-		div bx
-		xchg dx, cx
-		inc cx  ; Like `inc cl`, but 1 byte shorter.
-		mov bl, cl  ; BL := sec.
-		div word [bp-.header+.head_count]
-		mov dh, dl  ; DH := head.
-		xchg al, ah
-		mov cl, 6
-		shl al, cl
-		xchg cx, ax  ; CX := AX; AX := junk.
-		or cl, bl
-		pop bx  ; Restore.
-		mov dl, [bp-.header+.drive_number]
-		mov ax, 0x201  ; AL == 1 means: read 1 sector. !! Use EBIOS (AH == 0x42) if available. (Does it make QEMU faster?)
-		int 0x13  ; BIOS syscall to read sectors.
-		jc .fatal1
-%else  ; Call library function in MBR to save space.
-		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-%endif
+		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space.
 		pop cx  ; Restore.
 		pop dx  ; Restore.
 		pop ax  ; Restore.
@@ -1049,48 +938,6 @@ cpu 386
 ;  EAX - next sector
 .read_disk:
 		pushad
-%if 0
-		xor edx, edx ; EDX:EAX = LBA
-		push edx  ; hi 32bit of sector number
-		push eax  ; lo 32bit of sector number
-		push es  ; buffer segment
-		push dx  ; buffer offset
-		push byte 1  ; 1 sector to read
-		push byte 16  ; size of this parameter block
-
-		xor ecx, ecx ; !! Omit calculations below if ebios is enabled.
-		push dword [bsSecPerTrack] ; lo:sectors per track, hi:number of heads (bsNHeads)
-		pop cx  ; ECX = sectors per track (bsSecPerTrack)
-		div ecx  ; residue is in EDX
-		   ; quotient is in EAX
-		inc dx  ; sector number in DL
-		pop cx  ; ECX = number of heads (bsNHeads)
-		push dx  ; push sector number into stack
-		xor dx, dx  ; EDX:EAX = cylinder * TotalHeads + head
-		div ecx  ; residue is in EDX, head number
-		   ; quotient is in EAX, cylinder number
-		xchg dl, dh  ; head number should be in DH
-		   ; DL = 0
-		pop cx  ; pop sector number from stack
-		xchg al, ch  ; lo 8bit cylinder should be in CH
-		   ; AL = 0
-		shl ah, 6  ; hi 2bit cylinder ...
-		or cl, ah  ; ... should be in CL
-		
-		xor bx, bx
-		mov ax, 0x201 ; read 1 sector. The 0x2 may have been modified to 0x42 in .use_ebios.
-.ebios:  mov si, sp  ; DS:SI points to disk address packet
-		mov dl, [bsXDrive] ; hard disk drive number
-		push es
-		push ds
-		int 0x13
-		pop ds
-		pop bx
-		jc .disk_error
-		lea bx, [bx+0x20]
-		mov es, bx
-		popaw   ; remove parameter block from stack
-%else  ; Call library function in MBR to save space.
 		mov edx, eax
 		shr edx, 16
 		xor bx, bx
@@ -1098,35 +945,12 @@ cpu 386
 		mov bx, es
 		lea bx, [bx+0x20]
 		mov es, bx  ; Address for next sector.
-%endif
 		popad
 		inc  eax  ; Next sector.
 		ret
 
-%if 0  ; Unused, .read_disk was the last and only user.
-.disk_error:
-		mov si, -.org+.msg_DiskReadError
-		; Fall through to .boot_error.
-
-; Prints nonempty string DS:SI (modifies AX BX SI), and then hangs (doesn't return).
-.boot_error:
-		mov bx, 7  ; !! What's wrong with `xor bx, bx'? Has the caller set it up?
-.next_byte: lodsb   ; get token
-		test al, al  ; end of string?
-		jz .hang0 
-		mov ah, 0xe  ; print it
-		int 0x10  ; via TTY mode
-		jmp short .next_byte ; until done
-.hang0:		cli
-.hang:		hlt
-		jmp .hang
-%endif
-
 .errmsg_missing: db 'No '  ; Overlaps the following .io_sys.
 .io_sys:	db 'IO      SYS', 0
-%if 0  ; Unused, .read_disk was the last and only user.
-.msg_DiskReadError: db 'Disk error', 0
-%endif
 
 cpu 8086  ; Switch back.
 
