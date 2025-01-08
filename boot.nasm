@@ -812,7 +812,8 @@ boot_sector_fat32:
 .rootdir_cluster_ok:  ; Now: CL is sectors per cluster; EAX is sector number.
 
 .read_rootdir_sector:
-		mov bx, 0x70  ; Load kernel (io.sys) starting at 0x70:0 (== 0x700).
+		mov bx, 0x70  ; Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
+		mov es, bx
 		call .read_disk
 		xor di, di  ; Points to next directory entry to compare filename against.
 .next_entry:  ; Search for kernel file name, and find start cluster
@@ -846,10 +847,16 @@ boot_sector_fat32:
 		push dx
 		push ax  ; Save cluster number (DX:AX).
 		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
-		jnc .read_kernel_cluster
+		jnc .read_kernel_sector
 		; EOC encountered before we could read 4 sectors.
 		jmp strict near mbr.fatal1+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-
+.read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
+		call .read_disk
+		mov bx, es
+		lea bx, [bx+0x20]
+		mov es, bx
+		dec ch
+		jnz .cont_kernel_cluster
 .jump_to_msload_v7:
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
 		mov dl, [bp-.header+.drive_number]
@@ -859,14 +866,9 @@ boot_sector_fat32:
 		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
 		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
 		jmp 0x70:0x200  ; Jump to msload within io.sys.
-
-.read_kernel_cluster:  ; Now: CL is sectors per cluster; EAX is sector number.
-		call .read_disk
-		lea bx, [bx+0x20]
-		dec ch
-		jz .jump_to_msload_v7
+.cont_kernel_cluster:
 		dec cl ; initially DX holds sectors per cluster
-		jnz .read_kernel_cluster  ; loop over sectors in cluster
+		jnz .read_kernel_sector  ; loop over sectors in cluster
 		pop ax
 		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
@@ -877,6 +879,7 @@ boot_sector_fat32:
 ; Outputs: DX:AX: next cluster; ES: ruined.
 .next_cluster:
 		push bx  ; Save.
+		push es  ; Save.
 		mov bx, ax
 		and bx, byte 0x7f  ; Assumes word [bp-.header+.bytes_per_sector] == 0x200.
 		shl bx, 1
@@ -889,7 +892,10 @@ boot_sector_fat32:
 		pop cx
 		add ax, [bp-.header+.var_fat_start]
 		adc dx, [bp-.header+.var_fat_start+2]
-		; Now: EAX is absolute sector number, BX is the byte offset within the sector.
+		push bx  ; Save.
+		mov bx, 0xf0  ; Load FAT sector to 0xf00.
+		mov es, bx  ; Unconditionally, in case we don't call .read_disk.
+		; Now: DX:AX is the sector offset (LBA), BX is the byte offset within the sector.
 		; Is it the last accessed and already buffered FAT sector?
 		cmp ax, [bp-.header+.var_fat_sector]
 		jne .fat_read_sector_now
@@ -898,14 +904,13 @@ boot_sector_fat32:
 .fat_read_sector_now:
 		mov [bp-.header+.var_fat_sector], ax
 		mov [bp-.header+.var_fat_sector+2], dx  ; Mark sector DX:AX as buffered.
-		push bx  ; Save.
-		mov bx, 0xf0  ; Load FAT sector to 0xf00.
-		call .read_disk ; read sector EAX to buffer
+		call .read_disk ; read sector DX:AX to buffer.
 		pop bx  ; Restore.
 .fat_sector_read:
 		mov ax, [es:bx] ; read next cluster number
 		mov dx, [es:bx+2]
 		and dh, 0xf  ; Mask out top 4 bits, because FAT32 FAT pointers are only 28 bits.
+		pop es  ; Restore.
 		pop bx  ; Restore.
 		ret
 
@@ -939,7 +944,6 @@ boot_sector_fat32:
 ; Inputs: DX:AX: sector offset (LBA); BX: BX:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector; ES: set to BX.
 .read_disk:
-		mov es, bx
 		push ax  ; Save.
 		push bx  ; Save.
 		push cx  ; Save.
