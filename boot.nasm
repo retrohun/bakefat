@@ -816,11 +816,13 @@ boot_sector_fat32:
 		call .read_disk
 		xor di, di  ; Points to next directory entry to compare filename against.
 .next_entry:  ; Search for kernel file name, and find start cluster
+		push cx  ; Save for CL.
 		mov cx, 11  ; Number of bytes in a FAT filename.
 		mov si, -.org+.io_sys
 		push di
 		repe cmpsb
 		pop di
+		pop cx  ; Restore for CL.
 		je .found_entry ; Note that DI now is at directory entry + 11 bytes.
 		lea di, [di+0x20]  ; DI := address of next directory entry.
 		cmp di, [bp-.header+.bytes_per_sector]  ; 1 byte shorter than `cmp di, 0x200'.
