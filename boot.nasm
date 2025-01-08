@@ -437,7 +437,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov bl, cl  ; BL := sec.
 		; This also works:
 		; mov cx, [bp-.header+.head_count]
-		; div cx 
+		; div cx
 		div word [bp-.header+.head_count]
 		mov dh, dl  ; DH := head.
 		xchg al, ah
@@ -740,13 +740,11 @@ boot_sector_fat16_fspc4:
 ;   with old (before 1996) PC BIOS.
 ; * All the boot code fits to the boot sector (512 bytes). No need for
 ;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
-; * Needs a 386 (or better) CPU, because it uses EAX and other 32-bit
-;   registers (and instructions) for calculations.
-;   !! Rewrite it from scratch for 8086 compatibility. Maybe use a different
-;      implementation (merging FreeDOS boot/boot32.asm and boot/boot32lb.asm).
+; * Works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
+;   the 386 implementation).
 ; * Can boot only io.sys with the MS-DOS v7 protocol.
 ;   !! Add support for PC-DOS 7.10 (ibmbio.com and imbdos.com), maybe
-;      concatenate them to io.sys.
+;      concatenate them to io.sys. Is it even bootable on its own?
 ;
 ; History:
 
@@ -780,82 +778,75 @@ boot_sector_fat32:
 .var_fat_start: equ .header+0x48  ; first FAT sector (dd) (overwriting unused bytes).
 .var_data_start: equ .header-4  ; first data sector (dd) (overwriting unused bytes).
 
-cpu 386
-		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bsXDrive].
+		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in CL. Our mbr.boot_code has also passed it in byte [bsXDrive].
 
-; figure out where FAT and DATA area starts
-; (modifies EAX EDX, sets fat_start and data_start variables)
-		xor eax, eax
-		mov [bp-.header+.var_fat_sector], eax ; init buffer status
-
-		; first, find fat_start
-		mov ax, [bp-.header+.reserved_sector_count] ; reserved sectors
-		add eax, [bp-.header+.hidden_sector_count] ; hidden sectors
-		mov [bp-.header+.var_fat_start], eax ; first FAT sector
-		push eax  ; mov [bp-.header+.var_data_start], eax  ; first data sector, initial value
-
-		; next, find data_start
-		mov eax, [bp-.header+.fat_count] ; number of fats, no movzbl needed: the
-		   ; 2 words at 0x11(%bp) are 0 for fat32.
-		mul dword [bp-.header+.sectors_per_fat_fat32] ; sectors per fat (EDX=0)
-		add [bp-.header+.var_data_start], eax ; first DATA sector
+		; Figure out where FAT and data areas start.
+		mov [bp-.header+.var_fat_sector], ax   ; Assume AX == 0. Init buffer status.
+		mov [bp-.header+.var_fat_sector+2], ax ; Assume AX == 0. Init buffer status.
+		xchg dx, ax  ; DX := AX; AX := junk.
+		mov ax, [bp-.header+.reserved_sector_count]
+		add ax, [bp-.header+.hidden_sector_count]
+		adc dx, [bp-.header+.hidden_sector_count+2]
+		mov [bp-.header+.var_fat_start], ax
+		mov [bp-.header+.var_fat_start+2], dx
+		xor cx, cx
+		mov cl, [bp-.header+.fat_count]
+.add_fat:	add ax, [bp-.header+.sectors_per_fat_fat32]
+		adc dx, [bp-.header+.sectors_per_fat_fat32+2]
+		loop .add_fat
+		push dx
+		push ax  ; dword [bp-.header+.var_data_start] := DX:AX.
 
 ; Searches for the file in the root directory.
 ; Returns: EAX = first cluster of file
-		mov eax, [bp-.header+.rootdir_start_cluster] ; root dir cluster
+		mov ax, [bp-.header+.rootdir_start_cluster]
+		mov dx, [bp-.header+.rootdir_start_cluster+2]
 
 .next_rootdir_cluster:
-		push eax  ; save cluster
-		call .cluster_to_lba
+		push dx
+		push ax  ; Save cluster number (DX:AX).
+		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
 		jnc .rootdir_cluster_ok
 		mov si, -.org+.errmsg_missing   ; EOC in rootdir cluster. This means that kernel file was not found.
 		jmp strict near mbr.fatal+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-.rootdir_cluster_ok:  ; EDX is sectors per cluster, EAX is sector number
+.rootdir_cluster_ok:  ; Now: CL is sectors per cluster; EAX is sector number.
 
 .read_rootdir_sector:
-		push word 0x70  ; Load kernel (io.sys) starting at 0x70:0 (== 0x700).
-		pop es
-		push es
+		mov bx, 0x70  ; Load kernel (io.sys) starting at 0x70:0 (== 0x700).
 		call .read_disk
-		pop es
-		xor di, di
-
-		; Search for kernel file name, and find start cluster
-.next_entry:
+		xor di, di  ; Points to next directory entry to compare filename against.
+.next_entry:  ; Search for kernel file name, and find start cluster
 		mov cx, 11  ; Number of bytes in a FAT filename.
 		mov si, -.org+.io_sys
+		push di
 		repe cmpsb
-		je .found_entry ; Note that DI now is at dirent+11.
-
-		add di, byte 0x20
-		and di, byte -0x20 ; DI := address of next directory entry.
-		cmp di, [bp-.header+.bytes_per_sector] ; bytes per sector
+		pop di
+		je .found_entry ; Note that DI now is at directory entry + 11 bytes.
+		lea di, [di+0x20]  ; DI := address of next directory entry.
+		cmp di, [bp-.header+.bytes_per_sector]  ; 1 byte shorter than `cmp di, 0x200'.
 		jnz .next_entry ; next directory entry
-
-		dec dx ; initially DX holds sectors per cluster
+		dec cl
 		jnz .read_rootdir_sector ; loop over sectors in cluster
-
-		pop eax  ; restore current cluster
+		pop ax
+		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
 		jmp short .next_rootdir_cluster  ; read next cluster
 
-.found_entry:
-		; kernel directory entry is found
-		mov si, [es:0x14+di-11] ; get cluster number high word.
-		mov di, [es:0x1a+di-11] ; get cluster number low word.
+.found_entry:  ; Kernel directory entry is found.
+		mov si, [es:di+0x14] ; get cluster number high word.
+		mov di, [es:di+0x1a] ; get cluster number low word.
 		; SI:DI will be used by the MS-DOS v7 load protocol later.
-		push si
-		push di
-		pop eax  ; merge low and high words to dword.
-
+		mov ax, di
+		mov dx, si
 		; Read msload (first few sectors) of the kernel (io.sys).
-		mov cx, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
+		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
 .next_kernel_cluster:
-		push eax  ; Save cluster number.
-		call .cluster_to_lba  ; Also sets EDX to [bsSectPerClust].
-		; Now EDX is sectors per cluster, EAX is sector number.
+		push dx
+		push ax  ; Save cluster number (DX:AX).
+		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
 		jnc .read_kernel_cluster
-		; EOC encountered.
+		; EOC encountered before we could read 4 sectors.
+		jmp strict near mbr.fatal1+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
 
 .jump_to_msload_v7:
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
@@ -867,92 +858,102 @@ cpu 386
 		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
 		jmp 0x70:0x200  ; Jump to msload within io.sys.
 
-.read_kernel_cluster:
+.read_kernel_cluster:  ; Now: CL is sectors per cluster; EAX is sector number.
 		call .read_disk
-		dec cx
+		lea bx, [bx+0x20]
+		dec ch
 		jz .jump_to_msload_v7
-		dec dx ; initially DX holds sectors per cluster
+		dec cl ; initially DX holds sectors per cluster
 		jnz .read_kernel_cluster  ; loop over sectors in cluster
-
-		pop eax  ; Restore cluster number.
+		pop ax
+		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
 		jmp short .next_kernel_cluster
 
-; given a cluster number, find the number of the next cluster in
-; the FAT chain. Needs fat_start.
-; input: EAX - cluster; EDX = 0
-; output: EAX - next cluster; EDX = undefined; ruins EBX.
+; Given a cluster number, find the number of the next cluster in the FAT chain. Needs .var_fat_start.
+; Inputs: DX:AX: cluster.
+; Outputs: DX:AX: next cluster; ES: ruined.
 .next_cluster:
-		push es  
-		shl eax, 2  ; 32bit FAT
-		movzx ebx, word [bp-.header+.bytes_per_sector]  ; bytes per sector
-		div ebx  ; residue is in EDX
-		add eax, [bp-.header+.var_fat_start] ; add the first FAT sector number.
-		   ; EAX=absolute sector number
+		push bx  ; Save.
+		mov bx, ax
+		and bx, byte 0x7f  ; Assumes word [bp-.header+.bytes_per_sector] == 0x200.
+		shl bx, 1
+		shl bx, 1
+		push cx
+		mov cx, 7  ; Will shift DX:AX right by 7. Assumes word [bp-.header+.bytes_per_sector] == 0x200.
+.shr7_again:	shr dx, 1
+		rcr ax, 1
+		loop .shr7_again
+		pop cx
+		add ax, [bp-.header+.var_fat_start]
+		adc dx, [bp-.header+.var_fat_start+2]
+		; Now: EAX is absolute sector number, BX is the byte offset within the sector.
+		; Is it the last accessed and already buffered FAT sector?
+		cmp ax, [bp-.header+.var_fat_sector]
+		jne .fat_read_sector_now
+		cmp dx, [bp-.header+.var_fat_sector+2]
+		je .fat_sector_read
+.fat_read_sector_now:
+		mov [bp-.header+.var_fat_sector], ax
+		mov [bp-.header+.var_fat_sector+2], dx  ; Mark sector DX:AX as buffered.
+		push bx  ; Save.
 		mov bx, 0xf0  ; Load FAT sector to 0xf00.
-		mov es, bx
-
-		; is it the last accessed and already buffered FAT sector?
-		cmp eax, [bp-.header+.var_fat_sector]
-		jz .fat_sector_read
-		mov [bp-.header+.var_fat_sector], eax ; mark sector EAX as buffered
-		push es
 		call .read_disk ; read sector EAX to buffer
-		pop es
+		pop bx  ; Restore.
 .fat_sector_read:
-		;and byte [es:edx+3], 0xf  ; mask out top 4 bits
-		mov eax, [es:edx] ; read next cluster number
-		and eax, strict dword 0x0fffffff  ; Same instruction size as the `and byte [es:edx+3], 0xf' above.
-		pop es
+		mov ax, [es:bx] ; read next cluster number
+		mov dx, [es:bx+2]
+		and dh, 0xf  ; Mask out top 4 bits, because FAT32 FAT pointers are only 28 bits.
+		pop bx  ; Restore.
 		ret
 
-; Convert cluster number to the absolute sector number
-; ... or return carry if EndOfChain! Needs data_start.
-; input: EAX - target cluster
-; output: EAX - absolute sector
-;  EDX - [bsSectPerClust] (byte)
-;  carry clear
-;  (if carry set, EAX/EDX unchanged, end of chain)
+; Converts cluster number to the absolute sector number.
+; Inputs: DX:AX - target cluster; .var_data_start, .sectors_per_cluster.
+; Outputs on EOC: CF=1.
+; Outputs on non-EOC: CF=0; DX:AX - absolute sector; CL: .sectors_per_cluster value.
 .cluster_to_lba:
-		cmp eax, 0x0ffffff8  ; check End Of Chain
-		cmc
-		jc .eoc   ; carry is stored if EOC
+		cmp dx, 0x0fff  ; This is the maximum allowed value for DX, no need to do `ja .ret'.
+		jb .no_eoc
+		cmp ax, strict word 0xfff8
+		jb .no_eoc
+		stc
+		ret
+.no_eoc:	sub ax, byte 2
+		sbb dx, byte 0
+		; Sector := (cluster-2) * clustersize + data_start.
+		mov cl, [bp-.header+.sectors_per_cluster]
+		push cx  ; Save.
+		jmp short .maybe_shift
+.next_shift:	shl ax, 1
+		rcl dx, 1
+.maybe_shift:	shr cl, 1
+		jnz .next_shift
+		pop cx  ; Restore.
+		add ax, [bp-.header+.var_data_start]
+		adc dx, [bp-.header+.var_data_start+2]  ; Also CF := 0 for regular data.
+		ret
 
-		; sector = (cluster-2) * clustersize + data_start
-		dec eax
-		dec eax
-
-		movzx edx, byte [bp-.header+.sectors_per_cluster]  ; sectors per cluster
-		push dx   ; only DX would change
-		mul edx   ; EDX = 0
-		pop dx
-		add eax, [bp-.header+.var_data_start] ; data_start
-		; here, carry is cleared (unless parameters are wrong)
-.eoc:  ret
-
-; Read a sector from disk, using LBA or CHS
-; input: EAX - 32-bit DOS sector number
-;  ES:0000 - destination buffer
-;  (will be filled with 1 sector of data)
-; output: ES:0000 points one byte after the last byte read.
-;  EAX - next sector
+; Read a sector from disk, using LBA or CHS.
+; Inputs: DX:AX: sector offset (LBA); BX: BX:0 points to the destination buffer.
+; Outputs: DX:AX incremented by 1, for next sector; ES: set to BX.
 .read_disk:
-		pushad
-		mov edx, eax
-		shr edx, 16
-		xor bx, bx
+		mov es, bx
+		push ax  ; Save.
+		push bx  ; Save.
+		push cx  ; Save.
+		push dx  ; Save.
+		xor bx, bx  ; Use offset 0 in ES:BX.
 		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-		mov bx, es
-		lea bx, [bx+0x20]
-		mov es, bx  ; Address for next sector.
-		popad
-		inc  eax  ; Next sector.
+		pop dx  ; Restore.
+		pop cx  ; Restore.
+		pop bx  ; Restore.
+		pop ax  ; Restore.
+		add ax, byte 1  ; Next sector.
+		adc dx, byte 0
 		ret
 
 .errmsg_missing: db 'No '  ; Overlaps the following .io_sys.
 .io_sys:	db 'IO      SYS', 0
-
-cpu 8086  ; Switch back.
 
 		times 0x1fe-($-.header) db '-'  ; Padding.
 .boot_signature: dw BOOT_SIGNATURE

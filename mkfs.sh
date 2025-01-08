@@ -216,4 +216,23 @@ mattrib -i hdi.img +s ::MSDOS.SYS
 #mcopy -bsomp -i hdi.img COMMAND.COM.win98se ::COMMAND.COM
 mcopy -bsomp -i hdi.img COMMAND.COM.msdos8 ::COMMAND.COM
 
+nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+rm -f hdj.img
+truncate -s 1200M hdj.img  # !! Make the imege smaller.
+dd if=fat16m.bin bs=65536 of=hdj.img conv=notrunc,sparse
+mcopy -bsomp -i hdj.img empty.dat ::E0
+mcopy -bsomp -i hdj.img empty.dat ::E1
+#mcopy -bsomp -i hdj.img IO.SYS.win95osr2 ::IO.SYS
+#mcopy -bsomp -i hdj.img IO.SYS.win98se ::IO.SYS
+mcopy -bsomp -i hdj.img IO.SYS.msdos8 ::IO.SYS
+mattrib -i hdj.img +s ::IO.SYS
+mcopy -bsomp -i hdj.img empty.dat ::E2
+mcopy -bsomp -i hdj.img empty.dat ::E3
+mcopy -bsomp -i hdj.img empty.dat ::E4
+mcopy -bsomp -i hdj.img MSDOS.SYS.win95 ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays.
+mattrib -i hdj.img +s ::MSDOS.SYS
+#mcopy -bsomp -i hdj.img COMMAND.COM.win95osr2 ::COMMAND.COM
+#mcopy -bsomp -i hdj.img COMMAND.COM.win98se ::COMMAND.COM
+mcopy -bsomp -i hdj.img COMMAND.COM.msdos8 ::COMMAND.COM
+
 : "$0" OK.
