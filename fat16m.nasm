@@ -29,6 +29,7 @@
 ;   read it from there when initially mounting the filesystem.
 ; * Better cluster alignment (8 KiB) for faster host HDD access.
 ; * Better cylinder alignment for comaptibility with Mtools and QEMU.
+; * Provide caching of last FAT sector.
 ;
 ; !! Patch MS-DOS 4.01 sources for non-cluster-2 io.sys booting, and .fat_count=1: https://fabulous.systems/posts/2024/05/a-minor-update-ms-dos-4-1-is-here/
 ; !! This may be false: MS-DOS/v4.0/src/BIOS/MSLOAD.ASM: MSLOAD can handle maximum FAT area size of 64 KB: it can handle 2 * 64 KiB. !! Double check by moving io.sys to the end. Or just replace it with MS-DOS 5.00 msload after testing.
@@ -750,6 +751,8 @@ assert_fofs partition_1_sec_ofs<<9
 %if fat_32
 assert_at .header+0x5a
 		incbin 'boot.bin', 0x85a, 0x1fe-0x5a
+%elifdef NEW_FAT16_BS
+		incbin 'boot.bin', 0xa3e, 0x1fe-0x3e
 %elif fat_sectors_per_cluster==1  ; !! Use the same code for any value of fat_sectors_per_cluster.
 assert_at .header+0x3e
 		incbin 'boot.bin', 0x23e, 0x1fe-0x3e

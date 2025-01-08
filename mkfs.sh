@@ -4,6 +4,7 @@ set -ex
 test "$0" = "${0%/*}" || cd "${0%/*}"
 
 nasm-0.98.39 -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm
+#nasm-0.98.39 -O0 -w+orphan-labels -f bin -o boot.bin -l boot.lst boot.nasm
 nasm-0.98.39 -O0 -w+orphan-labels -f bin -o iboot.bin iboot.nasm
 
 rm -f fat12.img
@@ -132,7 +133,7 @@ mcopy -bsomp -i hdd.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay 
 mcopy -bsomp -i hdd.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
 mcopy -bsomp -i hdd.img COMMANDI.COM ::COMMAND.COM
 
-nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=2 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=1 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hde.img
 truncate -s 75614720 hde.img  # (131620+255*63) sectors. !! Maybe QEMU needs less padding (just +16*63). What about VirtualBox?
 dd if=fat16m.bin bs=65536 of=hde.img conv=notrunc,sparse
