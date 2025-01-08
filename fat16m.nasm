@@ -42,6 +42,81 @@
 ;    translated to SFT (System File Table) operations. The FCB to SFT
 ;    translation logic was implemented in SHARE.EXE.
 ;
+; FAT12, FAT16, FAT32 filesystem:
+;
+; * On a PC, each floppy and HDD sector is 512 bytes.
+; * layout:
+;   * hidden sectors:
+;     * HDD MBR (including partition table), missing for floppy
+;     * HDD other partitions, missing for floppy
+;   * reserved sectors: (must be at least 16 for FAT32 for the multisector boot code installed by Windows XP)
+;     * boot sector: including FAT headers (superblock, BPB) and boot code
+;     * FAT32 filesystem information sector
+;     * FAT32 backup boot sector
+;     * other sectors
+;   * first file allocation table (FAT)
+;   * second file allocation table (FAT): can be missing
+;   * root directory: fixed size, 32 bytes per entry
+;   * clusters: same size each (any of 512, 1024, 2048, 4096, 8192, 16384 or 32768 bytes)
+;   * unused data
+; * alignment:
+;   * Everything is aligned to sector size, nothing is aligned to cluster size.
+;   * Alignment to cluster size greatly improves performance of RAIDs and large-sector HDDs.
+;   * Hidden sectors usually start at the beginning of the device, so they are aligned.
+;   * To align reserved sectors to cluster size, align the partition start.
+;   * To align the first file allocation table to cluster size, increase the number of reserved sectors.
+;   * There is no way to align the second file allocation table to cluster size. Maybe by increasing the number of clusters beyond the device.
+;   * There is no way to align the root directory to cluster size. Maybe by increasing the number of clusters beyond the device.
+;   * To align the clusters to cluster size, increase the number of root directory entries.
+; * number of clusters:
+;   * We take into Microsoft's EFI FAT32 specification (see below), Windows NT
+;     4.0, mtools (https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/mformat.c#L222)
+;     and Linux kernel 3.13 vfat.o.
+;   * Microsoft's EFI FAT32 specification states that any FAT file system
+;     with less than 4085 clusters is FAT12,
+;     else any FAT file system with less than 65525 clusters is FAT16,
+;     and otherwise it is FAT32 (up to 268435444 == 0xffffff4 clusters).
+;   * FAT12: 1 .. 4078 (== 0xfee) clusters.
+;   * FAT16: 4087 .. 65518 (== 0xffee) clusters.
+;   * FAT32: 65525 .. 268435438 (== 0x0fffffee) clusters.
+; * biggest HDD image with a single FAT16 filesystem:
+;   * About 2 GiB == 2**31 bytes: 2**15 bytes per cluster, about 2**16 clusters.
+;   * Still supported by MS-DOS.
+;   * Geometry is compatible with QEMU 2.11.1.
+;   * Compatible with mtools, even without MTOOLS_SKIP_CHECK=1: Total number of sectors must be a multiple of sectors per track.
+;   * The y calculations above take into account the QEMU 2.11.1 bug that it reports 1 less cyls for logical disk geometry.
+;   * Number of sectors per cluster: 64 (maximum for FAT).
+;   * Number of clusters: 65518 (maximum for FAT16).
+;   * Number of hidden sectors: 63 (must be divisble by secs, for MS-DOS).
+;   * Number of reserved sectors: 57 (boot sector + 56, for the aligment of the clusters).
+;   * Number of sectors per FAT: 2**16 * 2 / 2**9 == 2**8 == 256.
+;   * Number of FATs: 1.
+;   * Number of root directory entries: 128.
+;   * Number of root directory sectors: 128 * 32 / 512 == 8.
+;   * Number of sectors before the first cluster: 63+57+256+8 == 384 == 6*64.
+;   * Total number of sectors including hidden sectors: 64*(6+65518) + (63-4) == 4193595 (+4 to round up to a multiple of secs==63, for MS-DOS and mtools).
+;   * Logical disk geometry (as seen by MS-DOS with int 13h AH==2 and AH==8 in QEMU): cyls=521==z, heads=128, secs=63
+;   * Physical disk geometry (as seen by int 13h AH==48h in QEMU): cyls=y, heads=16, secs=63; y*16*63 >= (z+1)*128*63; y >= (z+1)*128/16 == (521+1)*128/16; y == 4176.
+;   * !! Try to force another in QEMU, with trans=1.
+;   * Disk image size: 4176*16*63*512 == 2155216896 bytes.
+;   * qemu-system-i386 says: `18675@1735137116.631602:hd_geometry_guess blk 0x5557df40d670 CHS 4176 16 63 trans 2`
+;   * gdp.out (output of gdp.com, as hex): 00 bf 08 7f
+;   * Logical disk geometry (as reported by int 13h AH==8): cyls=521, heads=128, secs=63
+;   * Linux fdisk(1) `c`, `v` still reports: `Partition 1: does not end on cylinder boundary.`. MS-DOS still works. The partition table doesn't store the geometry (cyls, heads, secs).
+;   * MS-DOS 6.22 boot sector code relies on the heads= (word at @0x1a) and secs= (word at @0x18) in the BPB; after booting, it ignores it
+;   * ```
+;     rm -f fat16.img && mkfs.vfat -a -C -D 0 -f 1 -F 16 -i abcd1234 -r 128 -R 57 -s 64 -S 512 -h 63 --invariant fat16.img 2096766
+;     : Change number of heads to 128 (\x80\x00) at offset 26 in fat16.img.
+;     dd if=fat16.img of=hda.img bs=512 count=58 seek=63 conv=notrunc,sparse
+;     qemu-system-i386 -trace enable=hd_geometry_\* -fda t.img -drive file=hda.img,format=raw,id=hda,if=none -device ide-hd,drive=hda,cyls=4176,heads=16,secs=63 -boot a
+;       dir c:
+;       sys c:
+;     qemu-system-i386 -trace enable=hd_geometry_\* -drive file=hda.img,format=raw,id=hda,if=none -device ide-hd,drive=hda,cyls=4176,heads=16,secs=63 -boot c
+;     ```
+;   * !! Can MS-DOS still boot with 1 FAT? `sys c:' has changed it from 1 to 2.
+; * !! MS-DOS 4.0 limitation: (msload.asm): MSLOAD can handle maximum FAT area size of 64 KB. (Is this true? Probably only msboot. Or maybe even not.)
+; * !! MS-DOS 6.22 limitation: doesn't support .fat_count=1, but there is a patch to io.sys to add support: https://retrocomputing.stackexchange.com/q/31080
+;
 ; .fat_count == 1 is not supported by MS-DOS 6.22 (needs patch:
 ; https://retrocomputing.stackexchange.com/a/31082 !! implement HDD patch at
 ; boot time, when loading io.sys; implement it for DOS earlier than MS-DOS
