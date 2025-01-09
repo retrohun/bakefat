@@ -114,16 +114,28 @@
 ;       sys c:
 ;     qemu-system-i386 -trace enable=hd_geometry_\* -drive file=hda.img,format=raw,id=hda,if=none -device ide-hd,drive=hda,cyls=4176,heads=16,secs=63 -boot c
 ;     ```
-;   * !! Can MS-DOS still boot with 1 FAT? `sys c:' has changed it from 1 to 2.
 ; * !! MS-DOS 4.0 limitation: (msload.asm): MSLOAD can handle maximum FAT area size of 64 KB. (Is this true? Probably only msboot. Or maybe even not.)
-; * !! MS-DOS 6.22 limitation: doesn't support .fat_count=1, but there is a patch to io.sys to add support: https://retrocomputing.stackexchange.com/q/31080
 ;
-; .fat_count == 1 is not supported by MS-DOS 6.22 (needs patch:
-; https://retrocomputing.stackexchange.com/a/31082 !! implement HDD patch at
-; boot time, when loading io.sys; implement it for DOS earlier than MS-DOS
-; 6.22), but it is supported by Windows 95 (even in DOS mode).
-; FreeDOS 1.2 doesn't support this with either .fat_count value. (!! Why??
-; Possibly CHS?) FreeDOS 1.3 dupports this with both .fat_count values.
+; Accessing (`dir c:`) with wrong .sectors_per_track, .head_count or .hidden_sector_count:
+;
+; * FreeDOS 1.0..1.2: not supported.
+; * FreeDOS 1.3: supported.
+; * MS-DOS 6.22: supported.
+; * !! Get more info.
+; * !! Get info about booting.
+; * !! Get separate info about .hidden_sector_count.
+;
+; .fat_count == 1 support:
+;
+; * MS-DOS <=6.22: not supported, not even `dir c:`.
+; * IBM PC DOS 4.01..7.1: not supported, not even `dir c:`.
+; * Windows 95 (MS-DOS 7.x), Windows 98 (MS-DOS 7.x), Windows ME (MS-DOS 8.0): supported.
+; * FreeDOS 1.0..1.3: supported.
+; * For some version of MS-DOS, there is a patch in this repo for HDDs, see
+;   patchio*.nasm. (There is no patch for floppies.)
+; * More info: https://retrocomputing.stackexchange.com/q/31080
+; * !! Add a patch for MS-DOS 4.01 floppies, based on
+;   https://retrocomputing.stackexchange.com/a/31082
 ;
 ; Sector layout of the 2-FAT, 512-byte-sector, 512-byte-cluster FAT16 HDD image:
 ;
