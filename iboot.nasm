@@ -143,7 +143,7 @@ assert_at .header+0x40
 assert_at .header+0x41
 .reserved2:	db 0
 assert_at .header+0x42
-.extended_boot_segnature: db 0x29
+.extended_boot_signature: db 0x29
 assert_at .header+0x43
 .volume_id: dd 0x1234abcd  ; 1234-ABCD.
 assert_at .header+0x47
@@ -159,7 +159,7 @@ assert_at .header+0x24
 assert_at .header+0x25
 .var_unused: db 0  ;.var_read_head: db 0  ; Can be used as a temporary variable in .boot_code.
 assert_at .header+0x26
-.extended_boot_segnature: db 0x29
+.extended_boot_signature: db 0x29
 assert_at .header+0x27
 .volume_id: dd 0x1234abcd  ; 1234-ABCD.
 assert_at .header+0x2b
