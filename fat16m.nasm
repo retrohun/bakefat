@@ -42,6 +42,11 @@
 ;    partitions, DOS could not use FCBs directly and FCBs had to be
 ;    translated to SFT (System File Table) operations. The FCB to SFT
 ;    translation logic was implemented in SHARE.EXE.
+; !! Docs about IBM PC DOS 7.1 (free to download): https://liam-on-linux.livejournal.com/59703.html
+;    It's based off the same core as the embedded DOS in Windows 95B (OSR2)
+;    and Windows 98. It supports FAT32, including the ability to boot from
+;    them. It supports LBA hard disks, meaning it can handle volumes of over
+;    8GB. It fixes a lot of bugs in the DOS codebase.
 ;
 ; FAT12, FAT16, FAT32 filesystem:
 ;

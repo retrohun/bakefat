@@ -47,6 +47,15 @@
 ; * command.com displays the prompt (e.g. `C>` or `C:\>`), and waits for
 ;   user input.
 ;
+; The boot code in this file can boot from a HDD, but not from a floppy
+; disk, because:
+;
+; * Reading a FAT12 FAT is not implemented here, and most floppies have
+;   a FAT12 filesystem.
+; * Disk initialization parameter table (DPT,
+;   https://stanislavs.org/helppc/int_1e.html) initialization is skipped,
+;   for example, .sectors_per_track is not set in the DPT.
+;
 
 bits 16
 cpu 8086
@@ -491,7 +500,6 @@ assert_at .header+0x200
 %macro fat16_boot_sector 1  ; %1: fat_sectors_per_cluster
 		fat_header 1, 0, 2, (%1), 1, 1, 0, 0  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
 		fat_boot_sector_common
-.new_dipt:  ; Disk initialization parameter table, a copy of int 1eh. !!
 .var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
 .var_fat_sec_ofs: equ .boot_code+0xc+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 

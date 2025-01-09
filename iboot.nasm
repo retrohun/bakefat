@@ -57,6 +57,15 @@
 ; * command.com displays the prompt (e.g. `C>` or `C:\>`), and waits for
 ;   user input.
 ;
+; The boot code in this file can boot from a HDD, but not from a floppy
+; disk, because:
+;
+; * Reading a FAT12 FAT is not implemented here, and most floppies have
+;   a FAT12 filesystem.
+; * Disk initialization parameter table (DPT,
+;   https://stanislavs.org/helppc/int_1e.html) initialization is skipped,
+;   for example, .sectors_per_track is not set in the DPT.
+;
 
 bits 16
 cpu 8086
