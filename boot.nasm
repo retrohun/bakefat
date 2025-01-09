@@ -906,7 +906,7 @@ boot_sector_fat32:
 		jnz .cont_kernel_cluster
 .jump_to_msload:  ; !! Can we make it shorter? The old FAT16 implementation seems to be about 32 bytes shorter (without its error message).
 		pop dx
-		pop ax  ; Discard current cluster number.
+		pop ax  ; Discard current cluster number. This will make the pops pop from the correct offset.
 		; Fill registers according to MS-DOS v6 and v7 load protocol.
 		mov dl, [bp-.header+.drive_number]
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
@@ -914,19 +914,19 @@ boot_sector_fat32:
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
 		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
 		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
-		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]
+		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]  ; IBMP PC DOS 7.1 needs AX:BX to have the value of .var_clusters_sec_ofs. MS-DOS v7 gets it from dword [ss:bp-4] instead.
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
 		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
 		push ax
-		push bx  ; dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors. This is used by IBM PC DOS 7.1.
+		push bx  ; dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors.
 		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
 		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
 		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
 		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
-		dec cl ; initially DX holds sectors per cluster
-		jnz .read_kernel_sector  ; loop over sectors in cluster
+		dec cl  ; Consume 1 sector from the cluster.
+		jnz .read_kernel_sector
 		pop ax
 		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
@@ -1238,8 +1238,8 @@ boot_sector_fat16_new:
 		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
-		dec cl ; initially DX holds sectors per cluster
-		jnz .read_kernel_sector  ; loop over sectors in cluster
+		dec cl  ; Consume 1 sector from the cluster.
+		jnz .read_kernel_sector
 		pop ax  ; Restore cluster number.
 .next_cluster:  ; Find the number of the next cluster in the FAT16.
 		; Now: AX: cluster number.
