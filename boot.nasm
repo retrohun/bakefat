@@ -922,10 +922,10 @@ boot_sector_fat32:
 ; Outputs on EOC: CF=1.
 ; Outputs on non-EOC: CF=0; DX:AX: sector offset (LBA); CL: .sectors_per_cluster value.
 .cluster_to_lba:
-		cmp dx, 0x0fff  ; This is the maximum allowed value for DX, no need to do `ja .ret'.
-		jb .no_eoc
-		cmp ax, strict word 0xfff8
-		jb .no_eoc
+		cmp dx, 0x0fff
+		jne .1
+		cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8.
+.1:		jb .no_eoc
 		stc
 		ret
 .no_eoc:	sub ax, byte 2
