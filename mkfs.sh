@@ -30,6 +30,10 @@ nasm-0.98.39           -O0 -w+orphan-labels -f bin -o IO.SYS.msdos500.fat1 patch
 nasm-0.98.39 -DNOPATCH -O0 -w+orphan-labels -f bin -o IO.SYS.msdos500.fat2 patchio500.nasm
 cmp IO.SYS.msdos500 IO.SYS.msdos500.fat2  # Must be identical.
 
+nasm-0.98.39           -O0 -w+orphan-labels -f bin -o IBMBIO.COM.pcdos71.fat1 patchib71.nasm
+nasm-0.98.39 -DNOPATCH -O0 -w+orphan-labels -f bin -o IBMBIO.COM.pcdos71.fat2 patchib71.nasm
+cmp IBMBIO.COM.pcdos71 IBMBIO.COM.pcdos71.fat2  # Must be identical.
+
 #nasm-0.98.39 -DFAT_COUNT=1 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Supported by Windows 95 DOS mode, not supported by MS-DOS 6.22. Supported by patched MS-DOS 5.00 and 6.22.
 nasm-0.98.39 -DFAT_COUNT=2 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Supported by Windows 95 DOS mode, also by MS-DOS 6.22, also by MS-DOS 5.00.
 #nasm-0.98.39 -DFAT_COUNT=2 -DFAT_CLUSTER_COUNT=0x7ffe -DFAT_SECTORS_PER_CLUSTER=8 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Works on MS-DOS 4.01. !! It looks like FAT_SECTORS_PER_CLUSTER<=8 is needed by MS-DOS 4.01 !! Is this because reserved sector count is not 1? Change it.
@@ -116,13 +120,13 @@ mcopy -bsomp -i hdc.img MSDOS.SYS ::  # Must be first for MS-DOS 6.22 boot secto
 mattrib -i hdc.img +s ::MSDOS.SYS  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
 mcopy -bsomp -i hdc.img COMMAND.COM ::
 
-nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=2 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+nasm-0.98.39 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdd.img
 truncate -s 75614720 hdd.img  # (131620+255*63) sectors. !! Maybe QEMU needs less padding (just +16*63). What about VirtualBox?
 dd if=fat16m.bin bs=65536 of=hdd.img conv=notrunc,sparse
 mcopy -bsomp -i hdd.img hi.dat ::E0
 mcopy -bsomp -i hdd.img hi.dat ::E1
-mcopy -bsomp -i hdd.img IBMBIO.COM ::IBMBIO.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
+mcopy -bsomp -i hdd.img IBMBIO.COM.pcdos71.fat1 ::IBMBIO.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
 mattrib -i hdd.img +s ::IBMBIO.COM  # !! First 3 sectors must be contiguous for booting MS-DOS 6.22.
 mcopy -bsomp -i hdd.img hi.dat ::E2
 mcopy -bsomp -i hdd.img hi.dat ::E3
@@ -204,18 +208,18 @@ truncate -s 1200M hdi.img  # !! Make the imege smaller.
 dd if=fat16m.bin bs=65536 of=hdi.img conv=notrunc,sparse
 mcopy -bsomp -i hdi.img empty.dat ::E0
 mcopy -bsomp -i hdi.img empty.dat ::E1
-#mcopy -bsomp -i hdi.img IO.SYS.win95osr2 ::IO.SYS
+mcopy -bsomp -i hdi.img IO.SYS.win95osr2 ::IO.SYS
 #mcopy -bsomp -i hdi.img IO.SYS.win98se ::IO.SYS
-mcopy -bsomp -i hdi.img IO.SYS.msdos8 ::IO.SYS
+#mcopy -bsomp -i hdi.img IO.SYS.msdos8 ::IO.SYS
 mattrib -i hdi.img +s ::IO.SYS
 mcopy -bsomp -i hdi.img empty.dat ::E2
 mcopy -bsomp -i hdi.img empty.dat ::E3
 mcopy -bsomp -i hdi.img empty.dat ::E4
 mcopy -bsomp -i hdi.img MSDOS.SYS.win95 ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays.
 mattrib -i hdi.img +s ::MSDOS.SYS
-#mcopy -bsomp -i hdi.img COMMAND.COM.win95osr2 ::COMMAND.COM
+mcopy -bsomp -i hdi.img COMMAND.COM.win95osr2 ::COMMAND.COM
 #mcopy -bsomp -i hdi.img COMMAND.COM.win98se ::COMMAND.COM
-mcopy -bsomp -i hdi.img COMMAND.COM.msdos8 ::COMMAND.COM
+#mcopy -bsomp -i hdi.img COMMAND.COM.msdos8 ::COMMAND.COM
 
 nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdj.img
@@ -235,5 +239,45 @@ mattrib -i hdj.img +s ::MSDOS.SYS
 #mcopy -bsomp -i hdj.img COMMAND.COM.win95osr2 ::COMMAND.COM
 #mcopy -bsomp -i hdj.img COMMAND.COM.win98se ::COMMAND.COM
 mcopy -bsomp -i hdj.img COMMAND.COM.msdos8 ::COMMAND.COM
+
+#nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+if true; then
+  nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+  rm -f hdk.img
+  truncate -s 306M hdk.img  # !! Make the imege smaller.
+  dd if=fat16m.bin bs=65536 of=hdk.img conv=notrunc,sparse
+#  mcopy -bsomp -i hdk.img empty.dat ::E0
+#  mcopy -bsomp -i hdk.img empty.dat ::E1
+  mcopy -bsomp -i hdk.img IBMBIO.COM.pcdos71.fat1 ::IBMBIO.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
+  mattrib -i hdk.img +s ::IBMBIO.COM  # !! First 3 sectors must be contiguous for booting MS-DOS 6.22.
+#  mcopy -bsomp -i hdk.img empty.dat ::E2
+#  mcopy -bsomp -i hdk.img empty.dat ::E3
+#  mcopy -bsomp -i hdk.img empty.dat ::E4
+  mcopy -bsomp -i hdk.img IBMDOS.COM ::  # Must be first for MS-DOS 6.22 boot sector to boot.
+  mattrib -i hdk.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
+  mcopy -bsomp -i hdk.img COMMANDI.COM ::COMMAND.COM
+  mcopy -bsomp -i hdk.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
+  mcopy -bsomp -i hdk.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
+else
+  nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+  rm -f hdk.img
+  truncate -s 306M hdk.img  # !! Make the imege smaller.
+  dd if=fat16m.bin bs=65536 of=hdk.img conv=notrunc,sparse
+  # !! The IBM PC DOS 7.1 FAT32 boot sector doesn't support files before ibmbio.com.
+  #mcopy -bsomp -i hdk.img empty.dat ::E0
+  #mcopy -bsomp -i hdk.img empty.dat ::E1
+  mcopy -bsomp -i hdk.img IBMBIO.COM.pcdos71.fat1 ::IBMBIO.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
+  mattrib -i hdk.img +s ::IBMBIO.COM  # !! First 3 sectors must be contiguous for booting MS-DOS 6.22.
+  # !! The IBM PC DOS 7.1 FAT32 boot sector doesn't support files before ibmdos.com (except for ibmbio.com).
+  #mcopy -bsomp -i hdk.img empty.dat ::E2
+  #mcopy -bsomp -i hdk.img empty.dat ::E3
+  #mcopy -bsomp -i hdk.img empty.dat ::E4
+  mcopy -bsomp -i hdk.img IBMDOS.COM ::  # Must be first for MS-DOS 6.22 boot sector to boot.
+  mattrib -i hdk.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
+  mcopy -bsomp -i hdk.img COMMANDI.COM ::COMMAND.COM
+  mcopy -bsomp -i hdk.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
+  mcopy -bsomp -i hdk.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
+  dd bs=1 if=pcdos71-fat32-bs.bin count=422 of=hdk.img skip=90 seek=32346 conv=notrunc  # Use the IBM PC DOS 7.1 FAT32 boot sector.
+fi
 
 : "$0" OK.
