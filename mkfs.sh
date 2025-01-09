@@ -31,7 +31,7 @@ nasm-0.98.39 -DNOPATCH -O0 -w+orphan-labels -f bin -o IO.SYS.msdos500.fat2 patch
 cmp IO.SYS.msdos500 IO.SYS.msdos500.fat2  # Must be identical.
 
 #nasm-0.98.39 -DFAT_COUNT=1 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Supported by Windows 95 DOS mode, not supported by MS-DOS 6.22. Supported by patched MS-DOS 5.00 and 6.22.
-nasm-0.98.39 -DFAT_COUNT=2 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Supported by Windows 95 DOS mode, also by MS-DOS 6.22, also by MS-DOS 5.00.
+nasm-0.98.39 -DFAT_COUNT=2 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Supported by Windows 95 DOS mode, also by MS-DOS 6.22, also by MS-DOS 5.00.
 #nasm-0.98.39 -DFAT_COUNT=2 -DFAT_CLUSTER_COUNT=0x7ffe -DFAT_SECTORS_PER_CLUSTER=8 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Works on MS-DOS 4.01. !! It looks like FAT_SECTORS_PER_CLUSTER<=8 is needed by MS-DOS 4.01 !! Is this because reserved sector count is not 1? Change it.
 #nasm-0.98.39 -DFAT_COUNT=2 -DFAT_CLUSTER_COUNT=0xffee -DFAT_SECTORS_PER_CLUSTER=8 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm  # Works on MS-DOS 4.01. !! This (-DFAT_CLUSTER_COUNT=0xffee) also works in MS-DOS 4.01 for reading. But can it boot from it? Yes, the patched MS-DOS 4.01, with a warning: WARNING! SHARE should be loaded for large media. What about the original?
 #nasm-0.98.39 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
@@ -116,7 +116,7 @@ mcopy -bsomp -i hdc.img MSDOS.SYS ::  # Must be first for MS-DOS 6.22 boot secto
 mattrib -i hdc.img +s ::MSDOS.SYS  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
 mcopy -bsomp -i hdc.img COMMAND.COM ::
 
-nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=2 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=2 -DNEW_FAT16_BS -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdd.img
 truncate -s 75614720 hdd.img  # (131620+255*63) sectors. !! Maybe QEMU needs less padding (just +16*63). What about VirtualBox?
 dd if=fat16m.bin bs=65536 of=hdd.img conv=notrunc,sparse
@@ -219,7 +219,7 @@ mcopy -bsomp -i hdi.img COMMAND.COM.msdos8 ::COMMAND.COM
 
 nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdj.img
-truncate -s 1200M hdj.img  # !! Make the imege smaller.
+truncate -s 306M hdj.img  # !! Make the imege smaller.
 dd if=fat16m.bin bs=65536 of=hdj.img conv=notrunc,sparse
 mcopy -bsomp -i hdj.img empty.dat ::E0
 mcopy -bsomp -i hdj.img empty.dat ::E1
