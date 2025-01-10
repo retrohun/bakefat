@@ -788,8 +788,7 @@ boot_sector_fat32:
 .var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
 
 		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
-                mov bx, 0x700>>4
-		mov es, bx  ; Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
+		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
 
 		mov [bp-.header+.var_single_cached_fat_sec_ofs], ax   ; Assume AX == 0. Init buffer status.
 		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], ax ; Assume AX == 0. Init buffer status.
