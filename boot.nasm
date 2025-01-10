@@ -774,7 +774,7 @@ boot_sector_fat16_fspc4:
 ; * 0x400...0x500: BIOS data area.
 ; * 0x500...0x700: Unused.
 ; * 0x700...0xf00: 4 sectors loaded from io.sys.
-; * 0xf00...0x1100: Sector read from the FAT32 FAT.
+; * 0xf80...0x1180: Sector read from the FAT32 FAT. The reason for 0xf80 is that it is >= 0xf00, and es can be conveniently intiailized as `mov es, [bp-.header+.media_descriptor]`.
 ; * 0x1100..0x7b00: Unused.
 ; * 0x7b00...0x7c00: Stack used by this boot sector.
 ; * 0x7c00...0x7e00: This boot sector.
@@ -951,9 +951,7 @@ boot_sector_fat32:
 		pop cx
 		add ax, [bp-.header+.var_fat_sec_ofs]
 		adc dx, [bp-.header+.var_fat_sec_ofs+2]
-		push bx  ; Save.
-		mov bx, 0xf0  ; Load FAT sector to 0xf00.
-		mov es, bx  ; Unconditionally, in case we don't call .read_disk.
+		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8'. Only works for FAT32.
 		; Now: DX:AX is the sector offset (LBA), BX is the byte offset within the sector.
 		; Is it the last accessed and already buffered FAT sector?
 		cmp ax, [bp-.header+.var_single_cached_fat_sec_ofs]
@@ -964,7 +962,6 @@ boot_sector_fat32:
 		mov [bp-.header+.var_single_cached_fat_sec_ofs], ax
 		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		call .read_disk ; read sector DX:AX to buffer.
-		pop bx  ; Restore.
 .fat_sector_read:
 		mov ax, [es:bx] ; read next cluster number
 		mov dx, [es:bx+2]
