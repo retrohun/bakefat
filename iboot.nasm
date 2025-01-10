@@ -177,6 +177,7 @@ assert_at .header+0x36
 .fstype:	db 'FAT16   '
 assert_at .header+0x3e
 %endif
+.boot_code:
 %endm
 
 assert_fofs 0
@@ -194,7 +195,7 @@ mbr:  ; Master Boot record, sector 0 (LBA) of the drive.
 fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
 .org: equ -0x7e00+.header
 		times 0x5a-($-.header) db '+'  ; Pad FAT16 headers to the size of FAT32, for uniformity.
-.boot_code:
+;.boot_code:
 .var_change: equ .header-2  ; db.
 .var_bs_cyl_sec: equ .header-4  ; dw. CX value (cyl and sec) for int 13h AH == 2 and AH == 4.
 .var_bs_drive_number: equ .header-5  ; db. DH value (drive number) for int 13h AH == 2 and AH == 4.
@@ -469,7 +470,7 @@ assert_at .header+0x200
 
 %macro fat_boot_sector_common 0
 .org: equ -0x7c00+.header
-.boot_code:
+;.boot_code:
 		mov bp, -.org+.header
 		cli
 		xor ax, ax
@@ -804,26 +805,22 @@ boot_sector_fat16_fspc4:
 ;
 ; Features and requirements:
 ;
-; * It is able to boot io.sys from Windows 95 OSR2 (earlier versions of
-;   Windows 95 didn't support FAT32), Windows 98 FE, Windows 98 SE, and the
-;   unofficial MS-DOS 8.0 (MSDOS8.ISO on http://www.multiboot.ru/download/)
-;   based on Windows ME.
-; * With some additions (in the future), it may be able to boot IBM PC DOS
-;   7.1 (ibmbio.com and ibmdos.com), FreeDOS (kernel.sys), SvarDOS
-;   (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x (ntldr), Windows NT
-;   4.0 (ntldr), Windows 2000 (ntldr), Windows XP (ntldr).
-; * Autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
-;   back to CHS. LBA is for >8 GiB HDDs, CHS is for maximum compatibility
-;   with old (before 1996) PC BIOS.
+; * It is able to boot MS-DOS v7 (Windows 95 OSR2, Windows 98 FE, Windows 98
+;   SE, the unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
+;   http://www.multiboot.ru/download/) io.sys and IBM PC DOS 7.1 ibmbio.com
+;   and ibmdos.com. Earlier versions of MS-DOS and IBM PC DOS don't support
+;   FAT32.
+; * It uses EBIOS LBA (available since 1995--1996 in PC BIOS on actual
+;   hardware), it cannot fall back to older CHS.
 ; * All the boot code fits to the boot sector (512 bytes). No need for
 ;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
-; * Needs a 386 (or better) CPU, because it uses EAX and other 32-bit
-;   registers (and instructions) for calculations.
-;   !! Rewrite it from scratch for 8086 compatibility. Maybe use a different
-;      implementation (merging FreeDOS boot/boot32.asm and boot/boot32lb.asm).
-; * Can boot only io.sys with the MS-DOS v7 protocol.
-;   !! Add support for PC-DOS 7.10 (ibmbio.com and imbdos.com), maybe
-;      concatenate them to io.sys.
+; * It works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
+;   the 386 implementation).
+; * It can only boot from HDD, there is no floppy disk support. (That would
+;   need CHS sector reading and DPT modifications.) Also typical floppy
+;   disks are too small for a FAT32 filesystem.
+;
+; * It needs a custom sys.com (see below) to make a HDD bootable.
 ;
 ; History:
 
@@ -838,13 +835,42 @@ boot_sector_fat16_fspc4:
 ; You can use and copy source code and binaries under the terms of the
 ; GNU Public License (GPL), version 2 or newer. See www.gnu.org for more.
 ;
+; To install this boot sector boot code to a boot sector, a custom sys.com
+; must do the following:
+;
+; * Replace the first 3 bytes of the boot sector with 0xeb, 0x58, 0x90 (jump
+;   and nop).
+; * Keep bytes between offset 3 and 0x5a (first inclusive, last exclusive).
+;   This contains the FAT32 filesystem headers, including the .oem_name,
+;   the BPB and the EBPB.
+; * (All values are stored as little endian.)
+; * Set .drive_number if it's not 0x80 (first HDD). Usually it is.
+; * Precompute the clusters_sec_ofs_value (4 bytes).
+; * Copy the low word of clusters_sec_ofs value to offset 0x5b
+;   (.cso_init_low).
+; * Copy the high word of clusters_sec_ofs value to offset 0x5e
+;   (.cso_init_high).
+; * Set the .hidden_sector_count value (dword at 0x1c) to the start sector
+;   offset (LBA) of the patition. This is not needed for the boot sector
+;   code , but some operating systems may use it for booting or accessing
+;   the filesystem. (!! which)
+; * Set the .sectors_per_track value (word at 0x18) to the CHS cyls value,
+;   according to the disk geometry. This is not needed for the boot sector
+;   code (because it used EBIOS LBA), but some operating systems may use it
+;   for booting or accessing the filesystem. (!! which)
+; * Set the .head_count value (word at 0x1a) to the CHS cyls value,
+;   according to the disk geometry. This is not needed for the boot sector
+;   code (because it used EBIOS LBA), but some operating systems may use it
+;   for booting or accessing the filesystem. (!! which)
+; * Write the 512 bytes back to the boot sector.
+;
 ; Memory layout:
 ;
 ; * 0...0x400: Interrupt table.
 ; * 0x400...0x500: BIOS data area.
 ; * 0x500...0x700: Unused.
 ; * 0x700...0xf00: 4 sectors loaded from io.sys.
-; * 0xf00...0x1100: Sector read from the FAT32 FAT.
+; * 0xf80...0x1180: Sector read from the FAT32 FAT. The reason for 0xf80 is that it is >= 0xf00, and es can be conveniently intiailized as `mov es, [bp-.header+.media_descriptor]`.
 ; * 0x1100..0x7b00: Unused.
 ; * 0x7b00...0x7c00: Stack used by this boot sector.
 ; * 0x7c00...0x7e00: This boot sector.
@@ -852,247 +878,291 @@ boot_sector_fat16_fspc4:
 assert_fofs 0x800
 boot_sector_fat32:
 		fat_header 1, 0, 2, 1, 1, 1, 1, 0  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
+%if 1  ; size optimization: Precompute most of this (and for FAT16 as well) at filesystem creation time.
+; !!! Test this boot code, maybe it doesn't even work.
+		mov di, -1  ; Precomputed .var_clusters_sec_ofs (low word) by the custom sys.com.
+.cso_init_low: equ $-2
+		mov si, -1  ; Precomputed .var_clusters_sec_ofs+2 (high word) by the custom sys.com.
+.cso_init_high: equ $-2
+%endif
 		fat_boot_sector_common
-.var_fat_sector: equ .header+0x44  ; last accessed FAT sector (dd) (overwriting unused bytes).
-.var_fat_start: equ .header+0x48  ; first FAT sector (dd) (overwriting unused bytes).
-.var_data_start: equ .header-4  ; first data sector (dd) (overwriting unused bytes).
+.var_single_cached_fat_sec_ofs: equ .boot_code  ; dd. Last accessed FAT sector offset (LBA) (overwriting unused bytes).
+.var_fat_sec_ofs: equ .boot_code+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
+.var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
 
-cpu 386
+		; MS-DOS 4.01, MS-DOS 6.22 and IBM PC DOS 7.1 boot sector
+		; all receive the drive number in .drive_number, and they
+		; ignore the initial value of DL (which the MBR boot code
+		; typically sets to the drive number).
+		;
+		; To save space, we do the same here.
+		;mov [bp-.header+.drive_number], dl
 
-		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number].
-		mov ah, 0x41  ; Check extensions (EBIOS). DL already contains the drive number.
-		mov bx, 0x55aa
-		int 0x13
-		jc .done_ebios ; No EBIOS.
-		cmp bx, 0xaa55
-		jne .done_ebios ; No EBIOS.
-		ror cl, 1
-		jnc .done_ebios ; No EBIOS.
-		; EBIOS supported.
-.use_ebios:
-		mov byte [-.org+.ebios-1], 0x42  ; int 0x13 AH function value for extended read sectors.
-.done_ebios:
+		; Figure out where FAT and data areas start.
+%if 0  ; Too much code, see precomputed .c
+		xchg dx, ax  ; DX := AX; AX := junk.
+		mov ax, [bp-.header+.reserved_sector_count]
+		add ax, [bp-.header+.hidden_sector_count]
+		adc dx, [bp-.header+.hidden_sector_count+2]
+		mov [bp-.header+.var_fat_sec_ofs], ax
+		mov [bp-.header+.var_fat_sec_ofs+2], dx
+		xor cx, cx
+		mov cl, [bp-.header+.fat_count]  ; 1 or 2.
+.add_fat:	add ax, [bp-.header+.sectors_per_fat_fat32]
+		adc dx, [bp-.header+.sectors_per_fat_fat32+2]
+		loop .add_fat
+		push si
+		push di  ; dword [bp-.header+.var_clusters_sec_ofs] := DX:AX.
+%else
+		push si
+		push di  ; dword [bp-.header+.var_clusters_sec_ofs] := SI:DI.
+%endif
 
-; figure out where FAT and DATA area starts
-; (modifies EAX EDX, sets fat_start and data_start variables)
-		xor eax, eax
-		mov [bp-.header+.var_fat_sector], eax ; init buffer status
+		; Search the root directory for a kernel file.
+		mov ax, [bp-.header+.rootdir_start_cluster]
+		mov dx, [bp-.header+.rootdir_start_cluster+2]
+                ; Now: DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem.
+		mov bh, 3  ; BH := missing-filename-bitset (io.sys and msdos.sys).
 
-		; first, find fat_start
-		mov ax, [bp-.header+.reserved_sector_count] ; reserved sectors
-		add eax, [bp-.header+.hidden_sector_count] ; hidden sectors
-		mov [bp-.header+.var_fat_start], eax ; first FAT sector
-		push eax  ; mov [bp-.header+.var_data_start], eax  ; first data sector, initial value
-
-		; next, find data_start
-		mov eax, [bp-.header+.fat_count] ; number of fats, no movzbl needed: the
-		   ; 2 words at 0x11(%bp) are 0 for fat32.
-		mul dword [bp-.header+.sectors_per_fat_fat32] ; sectors per fat (EDX=0)
-		add [bp-.header+.var_data_start], eax ; first DATA sector
-
-; Searches for the file in the root directory.
-; Returns: EAX = first cluster of file
-		mov eax, [bp-.header+.rootdir_start_cluster] ; root dir cluster
+		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
+		mov [bp-.header+.var_single_cached_fat_sec_ofs], ds   ; Set to 0, i.e. cache empty.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], ds ; Set to 0, i.e. cache empty.
 
 .next_rootdir_cluster:
-		push eax  ; save cluster
-		call .cluster_to_lba
-		 ; EDX is sectors per cluster, EAX is sector number
-		mov si, -.org+.msg_BootError
-		jc near .boot_error  ; EOC encountered
-
+		push dx
+		push ax  ; Save cluster number (DX:AX).
+		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
+		jc .fatal1
+		; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
 .read_rootdir_sector:
-		push word 0x70  ; Load kernel (io.sys) starting at 0x70:0 (== 0x700).
-		pop es
-		push es
+                ; Now: DX:AX == the next sector offset (LBA) of the root directory in this FAT filesystem; CL: number of root directory sectors remaining in the current cluster.
 		call .read_disk
-		pop es
-		xor di, di
-
-		; Search for kernel file name, and find start cluster
-.next_entry:
-		mov cx, 11  ; Number of bytes in a FAT filename.
+		xor di, di  ; Points to next directory entry to compare filename against.
+.next_entry:  ; Search for kernel file name, and find start cluster.
+		push cx  ; Save.
+		push di  ; Save.
 		mov si, -.org+.io_sys
+		mov cx, 11  ; .io_sys_end-.io_sys
 		repe cmpsb
-		je .found_entry ; Note that DI now is at dirent+11.
-
-		add di, byte 0x20
-		and di, byte -0x20 ; DI := address of next directory entry.
-		cmp di, [bp-.header+.bytes_per_sector] ; bytes per sector
-		jnz .next_entry ; next directory entry
-
-		dec dx ; initially DX holds sectors per cluster
+		jne .not_io_sys
+		cmp [es:di-11+0x1c+2], cl  ; 0x1c is the offset of the dword-sized file size in the FAT directory entry.
+		je .do_io_sys_or_ibmbio_com  ; Jump if file size of io.sys is shorter than 0x10000 bytes. This is true for MS-DOS v6 (e.g. 6.22), false for MS-DOS v7 (e.g. Windows 95).
+		mov byte [bp-.header+.jmp_far_inst+2], 2  ; MS-DOS v7 load protocol wants `jmp 0x70:0x200', we set the 2 here.
+		and bh, ~2  ; No need for msdos.sys.
+.do_io_sys_or_ibmbio_com:
+		mov si, 0x500+0x14  ; Load protocol: io.sys expects directory entry of io.sys at 0x500.
+		and bh, ~1
+		jmp short .copy_entry
+.not_io_sys:
+		pop di
+		push di
+		inc cx  ; Skip over NUL.
+		add si, cx  ; Assumes that .ibmbio_com follows .io_sys. mov si, -.org+.ibmbio_com
+		mov cl, 11  ; .io_sys_end-.io_sys
+		repe cmpsb
+		je .do_io_sys_or_ibmbio_com
+		pop di
+		push di
+		add si, cx  ; Assumes that .ibmdos_com follows .ibmbio_com. Like this, but 1 byte shorter: mov si, -.org+.ibmdos_com
+		mov cl, 11  ; .ibmdos_com_end-.ibmdos_com  ; CH is already 0.
+		repe cmpsb
+		jne .not_ibmdos_com
+		and bh, ~2
+		mov si, 0x520+0x14  ; Load protocol: io.sys expects directory entry of msdos.sys at 0x520.
+.copy_entry:	mov cx, [es:di-11+0x1a]  ; Cluster number low word.
+		mov [si+0x1a-0x14], cx  ; Save to [0x500+0x1a] or [0x520+0x1a].
+		mov cx, [es:di-11+0x14]  ; Cluster number high word.
+		mov [si+0x14-0x14], cx  ; Save to [0x500+0x14] or [0x520+0x14].
+		;jmp short .entry_done  ; Fall through.
+.not_ibmdos_com:
+		; Fall through to .entry_done.
+.entry_done:	pop di  ; Restore.
+		pop cx  ; Restore CL := number of root directory sectors remaining in the current cluster.
+		;test bh, bh  ; Not needed, ZF is already correct because of `jne' or `and dh, ~...'.
+		jz .found_both_sys_files
+		lea di, [di+0x20]  ; DI := address of next directory entry.
+		cmp di, [bp-.header+.bytes_per_sector]  ; 1 byte shorter than `cmp di, 0x200'.
+		jne .next_entry ; next directory entry
+		dec cl
 		jnz .read_rootdir_sector ; loop over sectors in cluster
-
-		pop eax  ; restore current cluster
+		pop ax
+		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
 		jmp short .next_rootdir_cluster  ; read next cluster
 
-.found_entry:
-		; kernel directory entry is found
-		mov si, [es:0x14+di-11] ; get cluster number high word.
-		mov di, [es:0x1a+di-11] ; get cluster number low word.
-		; SI:DI will be used by the MS-DOS v7 load protocol later.
-		push si
-		push di
-		pop eax  ; merge low and high words to dword.
+.fatal1:	mov si, -.org+.errmsg_missing   ; EOC in rootdir cluster. This means that kernel file was not found.
+; Prints NUL-terminated message starting at SI, and halts. Ruins many registers.
+.fatal:
+.next_msg_byte:	lodsb
+		test al, al  ; Found terminating NUL?
+		jz .halt
+		mov ah, 0xe
+		mov bx, 7
+		int 0x10
+		jmp short .next_msg_byte
+.halt:		cli
+.hang:		hlt
+		jmp short .hang
 
+.found_both_sys_files:  ; Kernel directory entry is found.
+		pop dx
+		pop ax  ; Discard cluster number (DX:AX).
+		mov dx, [0x500+0x14]  ; Get cluster number high word.
+		mov ax, [0x500+0x1a]  ; Get cluster number low word.
+		push dx
+		push ax  ; Save for .jump_to_msload.
 		; Read msload (first few sectors) of the kernel (io.sys).
-		mov cx, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
+		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
 .next_kernel_cluster:
-		push eax  ; Save cluster number.
-		call .cluster_to_lba  ; Also sets EDX to [bsSectPerClust].
-		; Now EDX is sectors per cluster, EAX is sector number.
-		jnc .read_kernel_cluster
-		; EOC encountered.
-
-.jump_to_msload_v7:
-		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
+		push dx
+		push ax  ; Save cluster number (DX:AX).
+		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
+		jnc .read_kernel_sector
+		; EOC encountered before we could read 4 sectors.
+		mov si, -.org+.ibmbio_com-4  ; Just write 'SYS' as the error message.
+		jmp short .fatal
+.read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
+		call .read_disk
+		mov bx, es
+		lea bx, [bx+0x20]
+		mov es, bx
+		dec ch
+		jnz .cont_kernel_cluster
+.jump_to_msload:  ; !! Can we make it shorter? The old FAT16 implementation seems to be about 32 bytes shorter (without its error message).
+		pop dx
+		pop ax  ; Discard current cluster number. This will make the pops pop from the correct offset.
+		; Fill registers according to MS-DOS v6 and v7 load protocol.
 		mov dl, [bp-.header+.drive_number]
-		; Already filled: SI:DI = first cluster of load file if FAT32.
-		; Already filled: dword [ss:bp-4] = (== dword [bp-.header+.var_data_start]) first data sector of first cluster, including hidden sectors.
+		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
+		pop di
+		pop si  ; SI:DI == first cluster of load file in FAT32. This is used by MS-DOS v7 (e.g. Windows 95 OSR2), but IBM PC DOS 7.01 uses word [0x514] (high word) and word [0x51a] (low word) instead. (DI == first cluster of load file if FAT12 or FAT16.)
+		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
+		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
+		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
+		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]  ; IBMP PC DOS 7.1 needs AX:BX to have the value of .var_clusters_sec_ofs. MS-DOS v7 gets it from dword [ss:bp-4] instead.
+		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
+		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
+		push ax
+		push bx  ; dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors.
 		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
 		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
 		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
-		jmp 0x70:0x200  ; Jump to msload within io.sys.
-
-.read_kernel_cluster:
-		call .read_disk
-		dec cx
-		jz .jump_to_msload_v7
-		dec dx ; initially DX holds sectors per cluster
-		jnz .read_kernel_cluster  ; loop over sectors in cluster
-
-		pop eax  ; Restore cluster number.
+		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
+.jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
+.cont_kernel_cluster:
+		dec cl  ; Consume 1 sector from the cluster.
+		jnz .read_kernel_sector
+		pop ax
+		pop dx  ; Restore cluster number (DX:AX).
 		call .next_cluster
 		jmp short .next_kernel_cluster
 
-; given a cluster number, find the number of the next cluster in
-; the FAT chain. Needs fat_start.
-; input: EAX - cluster; EDX = 0
-; output: EAX - next cluster; EDX = undefined; ruins EBX.
+; Given a cluster number, find the number of the next cluster in the FAT32
+; chain. Needs .var_fat_sec_ofs.
+; Inputs: DX:AX: cluster number.
+; Outputs: DX:AX: next cluster number; SI: ruined.
 .next_cluster:
-		push es  
-		shl eax, 2  ; 32bit FAT
-		movzx ebx, word [bp-.header+.bytes_per_sector]  ; bytes per sector
-		div ebx  ; residue is in EDX
-		add eax, [bp-.header+.var_fat_start] ; add the first FAT sector number.
-		   ; EAX=absolute sector number
-		mov bx, 0xf0  ; Load FAT sector to 0xf00.
-		mov es, bx
-
-		; is it the last accessed and already buffered FAT sector?
-		cmp eax, [bp-.header+.var_fat_sector]
-		jz .fat_sector_read
-		mov [bp-.header+.var_fat_sector], eax ; mark sector EAX as buffered
-		push es
-		call .read_disk ; read sector EAX to buffer
-		pop es
+		push es  ; Save.
+		mov si, ax
+		and si, byte 0x7f  ; Assumes word [bp-.header+.bytes_per_sector] == 0x200.
+		shl si, 1
+		shl si, 1
+		push cx
+		mov cx, 7  ; Will shift DX:AX right by 7. Assumes word [bp-.header+.bytes_per_sector] == 0x200.
+.shr7_again:	shr dx, 1
+		rcr ax, 1
+		loop .shr7_again
+		pop cx
+		add ax, [bp-.header+.var_fat_sec_ofs]
+		adc dx, [bp-.header+.var_fat_sec_ofs+2]
+		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8'. Only works for FAT32.
+		; Now: DX:AX is the sector offset (LBA), BX is the byte offset within the sector.
+		; Is it the last accessed and already buffered FAT sector?
+		cmp ax, [bp-.header+.var_single_cached_fat_sec_ofs]
+		jne .fat_read_sector_now
+		cmp dx, [bp-.header+.var_single_cached_fat_sec_ofs+2]
+		je .fat_sector_read
+.fat_read_sector_now:
+		mov [bp-.header+.var_single_cached_fat_sec_ofs], ax
+		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
+		call .read_disk ; read sector DX:AX to buffer.
 .fat_sector_read:
-		;and byte [es:edx+3], 0xf  ; mask out top 4 bits
-		mov eax, [es:edx] ; read next cluster number
-		and eax, strict dword 0x0fffffff  ; Same instruction size as the `and byte [es:edx+3], 0xf' above.
-		pop es
+		mov ax, [es:si] ; read next cluster number
+		mov dx, [es:si+2]
+		and dh, 0xf  ; Mask out top 4 bits, because FAT32 FAT pointers are only 28 bits.
+		pop es  ; Restore.
 		ret
 
-; Convert cluster number to the absolute sector number
-; ... or return carry if EndOfChain! Needs data_start.
-; input: EAX - target cluster
-; output: EAX - absolute sector
-;  EDX - [bsSectPerClust] (byte)
-;  carry clear
-;  (if carry set, EAX/EDX unchanged, end of chain)
+; Converts cluster number to the sector offset (LBA).
+; Inputs: DX:AX - target cluster; .var_clusters_sec_ofs, .sectors_per_cluster.
+; Outputs on EOC: CF=1.
+; Outputs on non-EOC: CF=0; DX:AX: sector offset (LBA); CL: .sectors_per_cluster value.
 .cluster_to_lba:
-		cmp eax, 0x0ffffff8  ; check End Of Chain
-		cmc
-		jc .eoc   ; carry is stored if EOC
-
-		; sector = (cluster-2) * clustersize + data_start
-		dec eax
-		dec eax
-
-		movzx edx, byte [bp-.header+.sectors_per_cluster]  ; sectors per cluster
-		push dx   ; only DX would change
-		mul edx   ; EDX = 0
-		pop dx
-		add eax, [bp-.header+.var_data_start] ; data_start
-		; here, carry is cleared (unless parameters are wrong)
-.eoc:		ret
-
-; Read a sector from disk, using LBA or CHS
-; input: EAX - 32-bit DOS sector number
-;  ES:0000 - destination buffer
-;  (will be filled with 1 sector of data)
-; output: ES:0000 points one byte after the last byte read.
-;  EAX - next sector
-.read_disk:
-		pushad
-		xor edx, edx ; EDX:EAX = LBA
-		push edx  ; hi 32bit of sector number
-		push eax  ; lo 32bit of sector number
-		push es  ; buffer segment
-		push dx  ; buffer offset
-		push byte 1  ; 1 sector to read
-		push byte 16  ; size of this parameter block
-
-		xor ecx, ecx ; !! Omit calculations below if ebios is enabled.
-		push dword [bp-.header+.sectors_per_track] ; lo:sectors per track, hi:number of heads (bsNHeads)
-		pop cx  ; ECX = sectors per track (bp-.header+.sectors_per_track)
-		div ecx  ; residue is in EDX
-		   ; quotient is in EAX
-		inc dx  ; sector number in DL
-		pop cx  ; ECX = number of heads (bsNHeads)
-		push dx  ; push sector number into stack
-		xor dx, dx  ; EDX:EAX = cylinder * TotalHeads + head
-		div ecx  ; residue is in EDX, head number
-		   ; quotient is in EAX, cylinder number
-		xchg dl, dh  ; head number should be in DH
-		   ; DL = 0
-		pop cx  ; pop sector number from stack
-		xchg al, ch  ; lo 8bit cylinder should be in CH
-		   ; AL = 0
-		shl ah, 6  ; hi 2bit cylinder ...
-		or cl, ah  ; ... should be in CL
-		
-		xor bx, bx
-		mov ax, 0x201 ; read 1 sector. The 0x2 may have been modified to 0x42 in .use_ebios.
-.ebios:		mov si, sp  ; DS:SI points to disk address packet
-		mov dl, [bp-.header+.drive_number] ; hard disk drive number
-		push es
-		push ds
-		int 0x13
-		pop ds
-		pop bx
-		jc .disk_error
-		lea bx, [bx+0x20]
-		mov es, bx
-		popaw   ; remove parameter block from stack
-		popad
-		inc  eax  ; next sector
+		cmp dx, 0x0fff
+		jne .1
+		cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8.
+.1:		jb .no_eoc
+		stc
+		ret
+.no_eoc:	sub ax, byte 2
+		sbb dx, byte 0
+		; Sector := (cluster-2) * clustersize + data_start.
+		mov cl, [bp-.header+.sectors_per_cluster]
+		push cx  ; Save for CH.
+		jmp short .maybe_shift
+.next_shift:	shl ax, 1
+		rcl dx, 1
+.maybe_shift:	shr cl, 1
+		jnz .next_shift
+		pop cx  ; Restore for CH.
+		add ax, [bp-.header+.var_clusters_sec_ofs]
+		adc dx, [bp-.header+.var_clusters_sec_ofs+2]  ; Also CF := 0 for regular data.
 		ret
 
-.disk_error:
-		mov si, -.org+.msg_DiskReadError
-		; Fall through to .boot_error.
+; Read a sector from disk, using LBA or CHS.
+; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
+; Outputs: DX:AX incremented by 1, for next sector; SI: ruined.
+.read_disk:
+		push ax  ; Save.
+		push cx  ; Save.
+		push dx  ; Save.
+; Reads a single sector from the specified BIOS drive, using LBA (EBIOS).
+; Inputs: DX:AX: LBA sector number on the drive; ES:0: points to read buffer.
+; Output: DL: drive number. Halts on failures.
+; Ruins: AH, CX, DX (output), SI, flags.
+.read_sector_lba:  ; Using EBIOS. !! Detect EBIOS.
+		; Construct .dap (Disk Address Packet) for BIOS int 13h AH == 42, on the stack.
+		xor cx, cx
+		push cx  ; High word of .dap_lba_high.
+		push cx  ; Low word of .dap_lba_high.
+		push dx  ; High word of .dap_lba.
+		push ax  ; Low word of .dap_lba.
+		push es  ; .dap_mem_seg.
+		push cx  ; .dap_mem_ofs.
+		inc cx
+		push cx  ; .dap_sector_count := 1.
+		mov cl, 0x10
+		push cx  ; .dap_size := 0x10.
+		mov si, sp
+		mov ah, 0x42
+		mov dl, [bp-.header+.drive_number]  ; !! This offset depends on the filesystem type (FAT16 or FAT32). %if fat_32.
+		int 0x13  ; BIOS syscall to read sectors using EBIOS.
+		jc .fatal1
+		add sp, cx  ; Pop the .dap and keep CF (indicates error).
+; End of .read_sector_lba.
+		pop dx  ; Restore.
+		pop cx  ; Restore.
+		pop ax  ; Restore.
+		add ax, byte 1  ; Next sector.
+		adc dx, byte 0
+		ret
 
-; Prints nonempty string DS:SI (modifies AX BX SI), and then hangs (doesn't return).
-.boot_error:
-		mov bx, 7  ; !! What's wrong with `xor bx, bx'? Has the caller set it up?
-.next_byte:	lodsb   ; get token
-		test al, al  ; end of string?
-		jz .hang0 
-		mov ah, 0xe  ; print it
-		int 0x10  ; via TTY mode
-		jmp short .next_byte ; until done
-.hang0:		cli
-.hang:		hlt
-		jmp .hang
-
-.msg_BootError: db 'No '  ; Overlaps the following .io_sys.
-.io_sys: db 'IO      SYS', 0
-.msg_DiskReadError: db 'Disk error', 0
-
-cpu 8086  ; Switch back.
+.errmsg_missing: db 'No '  ; Overlaps the following .io_sys.
+.io_sys:	db 'IO      SYS', 0
+.ibmbio_com:	db 'IBMBIO  COM'  ; Must be followed by .msdos_sys in memory. ibmbio.com in IBM PC DOS 7.1 supports FAT32.
+.ibmbio_com_end:
+.ibmdos_com:	db 'IBMDOS  COM'  ; Must follow .ibmdos_com in memory. ibmdos.com in IBM PC DOS 7.1 supports FAT32.
+.ibmdos_com_end:
 
 		times 0x1fe-($-.header) db '-'  ; Padding.
 .boot_signature: dw BOOT_SIGNATURE
