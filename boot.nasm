@@ -736,24 +736,26 @@ boot_sector_fat16_fspc4:
 ;
 ; Features and requirements:
 ;
-; * It is able to boot io.sys from Windows 95 OSR2 (earlier versions of
-;   Windows 95 didn't support FAT32), Windows 98 FE, Windows 98 SE, and the
-;   unofficial MS-DOS 8.0 (MSDOS8.ISO on http://www.multiboot.ru/download/)
-;   based on Windows ME.
-; * With some additions (in the future), it may be able to boot IBM PC DOS
-;   7.1 (ibmbio.com and ibmdos.com), FreeDOS (kernel.sys), SvarDOS
-;   (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x (ntldr), Windows NT
-;   4.0 (ntldr), Windows 2000 (ntldr), Windows XP (ntldr).
-; * Autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
+; * It is able to boot MS-DOS v7 (Windows 95 OSR2, Windows 98 FE, Windows 98
+;   SE, the unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
+;   http://www.multiboot.ru/download/) io.sys and IBM PC DOS 7.1 ibmbio.com
+;   and ibmdos.com. Earlier versions of MS-DOS and IBM PC DOS don't support
+;   FAT32.
+; * With some additions (in the future), it may be able to boot FreeDOS
+;   (kernel.sys), SvarDOS (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x
+;   (ntldr), Windows NT 4.0 (ntldr), Windows 2000 (ntldr), Windows XP
+;   (ntldr). However, room in the 512 bytes is running out, so probably it
+;   would need another sector (or MBR library sector).
+; * It autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
 ;   back to CHS. LBA is for >8 GiB HDDs, CHS is for maximum compatibility
 ;   with old (before 1996) PC BIOS.
 ; * All the boot code fits to the boot sector (512 bytes). No need for
 ;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
-; * Works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
+; * It works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
 ;   the 386 implementation).
-; * Can boot only io.sys with the MS-DOS v7 protocol.
-;   !! Add support for PC-DOS 7.10 (ibmbio.com and imbdos.com), maybe
-;      concatenate them to io.sys. Is it even bootable on its own?
+; * It can only boot from HDD, there is no floppy disk support. (That would
+;   need CHS sector reading and DPT modifications.) Also typical floppy
+;   disks are too small for a FAT32 filesystem.
 ;
 ; History:
 
@@ -787,11 +789,10 @@ boot_sector_fat32:
 .var_fat_sec_ofs: equ .boot_code+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 .var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
 
-		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
+		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number].
 		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
-
-		mov [bp-.header+.var_single_cached_fat_sec_ofs], ax   ; Assume AX == 0. Init buffer status.
-		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], ax ; Assume AX == 0. Init buffer status.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs], ds   ; Set to 0, i.e. cache empty.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], ds ; Set to 0, i.e. cache empty.
 
 		; Figure out where FAT and data areas start.
 		; !! size optimization: Precompute most of this (and for FAT16 as well) at filesystem creation time.
@@ -882,11 +883,10 @@ boot_sector_fat32:
 .found_both_sys_files:  ; Kernel directory entry is found.
 		pop dx
 		pop ax  ; Discard cluster number (DX:AX).
-		mov si, [0x500+0x14]  ; Get cluster number high word.
-		mov di, [0x500+0x1a]  ; Get cluster number low word.
-		; SI:DI will be used by the MS-DOS v7 load protocol later.
-		mov ax, di
-		mov dx, si
+		mov dx, [0x500+0x14]  ; Get cluster number high word.
+		mov ax, [0x500+0x1a]  ; Get cluster number low word.
+		push dx
+		push ax  ; Save for .jump_to_msload.
 		; Read msload (first few sectors) of the kernel (io.sys).
 		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
 .next_kernel_cluster:
@@ -909,7 +909,8 @@ boot_sector_fat32:
 		; Fill registers according to MS-DOS v6 and v7 load protocol.
 		mov dl, [bp-.header+.drive_number]
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
-		; Already filled: SI:DI == first cluster of load file in FAT32. This is not (!! try) used by MS-DOS v7 (e.g. Windows 95 OSR2) (DI == first cluster of load file if FAT12 or FAT16.)
+		pop di
+		pop si  ; SI:DI == first cluster of load file in FAT32. This is used by MS-DOS v7 (e.g. Windows 95 OSR2), but IBM PC DOS 7.01 uses word [0x514] (high word) and word [0x51a] (low word) instead. (DI == first cluster of load file if FAT12 or FAT16.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
 		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
 		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
@@ -934,14 +935,14 @@ boot_sector_fat32:
 ; Given a cluster number, find the number of the next cluster in the FAT32
 ; chain. Needs .var_fat_sec_ofs.
 ; Inputs: DX:AX: cluster number.
-; Outputs: DX:AX: next cluster number; ES: ruined.
+; Outputs: DX:AX: next cluster number; SI: ruined.
 .next_cluster:
-		push bx  ; Save.
+		push si  ; Save.
 		push es  ; Save.
-		mov bx, ax
-		and bx, byte 0x7f  ; Assumes word [bp-.header+.bytes_per_sector] == 0x200.
-		shl bx, 1
-		shl bx, 1
+		mov si, ax
+		and si, byte 0x7f  ; Assumes word [bp-.header+.bytes_per_sector] == 0x200.
+		shl si, 1
+		shl si, 1
 		push cx
 		mov cx, 7  ; Will shift DX:AX right by 7. Assumes word [bp-.header+.bytes_per_sector] == 0x200.
 .shr7_again:	shr dx, 1
@@ -962,11 +963,11 @@ boot_sector_fat32:
 		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		call .read_disk ; read sector DX:AX to buffer.
 .fat_sector_read:
-		mov ax, [es:bx] ; read next cluster number
-		mov dx, [es:bx+2]
+		mov ax, [es:si] ; read next cluster number
+		mov dx, [es:si+2]
 		and dh, 0xf  ; Mask out top 4 bits, because FAT32 FAT pointers are only 28 bits.
 		pop es  ; Restore.
-		pop bx  ; Restore.
+		pop si  ; Restore.
 		ret
 
 ; Converts cluster number to the sector offset (LBA).
@@ -1033,6 +1034,7 @@ assert_fofs 0xa00
 ; * It is able to boot io.sys from Windows 95 RTM (OSR1), Windows 95 OSR
 ;   Windows 98 FE, Windows 98 SE, and the unofficial MS-DOS 8.0 (MSDOS8.ISO
 ;   on http://www.multiboot.ru/download/) based on Windows ME.
+;   !! Add and test with MS-DOS 4.00.
 ; * With some additions (in the future), it may be able to boot IBM PC DOS
 ;   7.1 (ibmbio.com and ibmdos.com), FreeDOS (kernel.sys), SvarDOS
 ;   (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x (ntldr), Windows NT
@@ -1044,9 +1046,8 @@ assert_fofs 0xa00
 ;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
 ; * Works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
 ;   the 386 implementation).
-; * Can boot only io.sys with the MS-DOS v7 protocol.
-;   !! Add support for PC-DOS 7.10 (ibmbio.com and imbdos.com), maybe
-;      concatenate them to io.sys. Is it even bootable on its own?
+; * !! Add and check support for PC-DOS 7.1 (ibmbio.com and imbdos.com), maybe
+;   concatenate them to io.sys. Is it even bootable on its own?
 ;
 ; History:
 
