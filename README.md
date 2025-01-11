@@ -1,19 +1,20 @@
 # bakefat: bootable external FAT hard disk image creator for DOS and Windows 3.1--95--98--ME
 
 bakefat is an easy-to-use tool for creating bootable hard disk images with
-FAT16 or FAT32 fileystems, for virtual machines running DOS (MS-DOS
+FAT16 or FAT32 fileystems, usable in virtual machines running DOS (MS-DOS
 4.01--6.22 or PC-DOS 4.01--7.1) or Windows 3.1--95--95-ME in an emulator
 (such as QEMU or VirtualBox). bakefat is an external tool, i.e. it runs on
-the host system. bakefay createt a FAT16 or FAT32 filesystem, makes it
-bootable by writing boot code to the boot sector, creates partition, and
+the host system. bakefat creates a FAT filesystem, makes it
+bootable by writing boot code to the boot sector, creates a partition, and
 makes the system bootable by writing boot code to the MBR. After that the
-user has to copy copies the system files (such as io.sys, command.com and
+user has to copy the system files (such as io.sys, command.com and
 maybe a few more) manually (using e.g. Mtools), and the system becomes
 bootable in the virtual machine.
 
-bakefat is currently **UNIMPLEMENTED**, this document just describes how it
-would look and work like. The Git repostitory contains some proof of concept
-boot code and FAT filesystem initialization code, both written in NASM.
+bakefat is currently **UNIMPLEMENTED**, this document currently describes
+how it would look like and function. The Git repostitory contains some proof
+of concept boot code and FAT filesystem initialization code, both written in
+NASM.
 
 bakefat features and limitations:
 
@@ -28,20 +29,22 @@ bakefat features and limitations:
   compatibility, and (optionally) the filesystem type (FAT16 or FAT32). By
   default, bakefat chooses the best filesystem type for the desired operating
   system. There is no need for manual calculations.
-* It goes to extreme lengths to make all parameters compatible with all
-  supported guest operating systems. This involves autodetecting and filling
-  the following header fields at boot time and writing them back to disk
-  before the guest operating system has a chance to read them: CHS geometry
-  (sectors per track and head count fields in the FAT BPB), partition start
-  and end CHS values (in the partition table), EBIOS (LBA) feature presence
-  (byte at offset 2 in the FAT boot sector), hidden sector count (same as
-  the partition sector offset (LBA), in the FAT BPB), drive number (in the
-  FAT BPB).
+* It goes to extreme lengths to make all header field values compatible with
+  all supported guest operating systems. This involves autodetecting and
+  filling the following header fields at boot time and writing them back to
+  disk before the guest operating system has a chance to read them: CHS
+  geometry (sectors per track and head count fields in the FAT BPB),
+  partition start and end CHS values (in the partition table), EBIOS (LBA)
+  feature presence (byte at offset 2 in the FAT boot sector), hidden sector
+  count (same as the partition sector offset (LBA), in the FAT BPB), drive
+  number (in the FAT BPB).
 * The user can also specify the number of FATs, to override the default
   (which is usually 2).
 * No need to run any other tool (such as fdisk, install-mbr, mkfs.vfat,
-  mformat, ms-sys, bootlace.com) on the host system, everything is
-  automatic, and everything is run with the correct autodetected parameters.
+  mformat, ms-sys, bootlace.com) on the host system, the output of bakefat
+  is a complete, proper, bootable disk image with a filesystem and a
+  partition table, with parameters and sizes correctly autodetected and
+  adjusted.
 * No need to run any tool (such as fdisk.exe, sys.com or format.com) in the
   virtual machine, everything is automatic, and everything is run with the
   correct autodetected parameters.
@@ -63,7 +66,7 @@ bakefat features and limitations:
   ISO9660, UDF, Linux ext2 etc.) on the virtual hard disk.
 * It creates disk image files. Alternatively it can also write to block
   devices (Linux and macOS only, not supported on Win32).
-* It uses sparese files for disk images on Linux and macOS so that space on
+* It uses sparse files for disk images on Linux and macOS so that space on
   the host filesystem is only used by the files, not the empty space. An
   empty disk images uses less than 32 KiB of host filesystem space (plus
   metadata).
@@ -74,8 +77,8 @@ bakefat features and limitations:
   operating system from a hard disk image.
 * It provides a tool to apply binary patches to some DOS kernel files (e.g.
   *io.sys* files) to make them more flexible when booting, such as accepting
-  a FAT filesystem with 1 FAT, accepting a FAT filesystem with more than 1
-  reserved sectors and loading a fragmented *io.sys*.
+  a FAT filesystem with only 1 FAT, accepting a FAT filesystem with more
+  than 1 reserved sectors and loading a fragmented *io.sys*.
 
 Here is how to use bakefat:
 
@@ -265,16 +268,16 @@ The bakefat boot process:
    bakeboot.sys from sectors between the MBR and the boot sector, not
    occupying any bytes on the FAT filesystem.
 
-4. The code in bakeboot.sys locates kernel files in the root directory of
-   the FAT filesystem, and loads the (first) kernel file it has found. It
-   autodetects the load protocol, sets up the register and memory values,
-   and jumps to the kernel startup code.
+4. The code in bakeboot.sys locates kernel files by name in the root
+   directory of the FAT filesystem, and loads the (first) kernel file it has
+   found. It autodetects the load protocol, sets up the register and memory
+   values, and jumps to the kernel startup code.
 
 5. Supported kernels (for both autodetection and boot) and their filenames:
 
    * MS-DOS 4.01--6.22: *io.sys* and *msdos.sys* together.
    * IBM PC DOS 4.01--7.1: *ibmbio.com* and *ibmdos.com* together.
-   * Windwos 95--98--ME: *io.sys*. Windows ME is supported only in the
+   * Windows 95--98--ME: *io.sys*. Windows ME is supported only in the
      multiboot.ru MSDOS8.ISO (get it from
      [here](http://www.multiboot.ru/download/)) MS-DOS 8.0 community
      release.

@@ -1,16 +1,17 @@
 # mbrsys: bootable hard disk image creator for DOS and Windows 3.1--95--98--ME
 
 mbrsys is an easy-to-use, beginner-friendly tool for creating bootable hard
-disk images for virtual machines running DOS (MS-DOS 4.01--6.22 or PC-DOS
-4.01--7.1) or Windows 3.1--95--95-ME in an emulator (such as QEMU or
-VirtualBox). mrsys runs on the virtual machine (guest system). mbrsys
-creates a FAT16 or FAT32 filesystem, copies the system files (io.sys,
-command.com and a few more if needed), makes it bootable by writing boot
-code to the boot sector, creates partition, and makes the system bootable by
-writing boot code to the MBR.
+disk images with FAT16 or FAT32 filesystems, usable in virtual machines
+running DOS (MS-DOS 4.01--6.22 or PC-DOS 4.01--7.1) or Windows
+3.1--95--95-ME in an emulator (such as QEMU or VirtualBox). mrsys runs on
+the virtual machine, before the guest operating system installer starts.
+mbrsys creates a FAT filesystem, copies the guest system files (io.sys,
+command.com and a few more if needed) to it, makes it bootable by writing
+boot code to the boot sector, creates a partition, and makes the system
+bootable by writing boot code to the MBR.
 
-mbrsys is currently **UNIMPLEMENTED**, this document just describes how it
-would look and work like.
+mbrsys is currently **UNIMPLEMENTED**, this document currently describes how
+it would look like and function.
 
 mbrsys features and limitations:
 
@@ -21,11 +22,12 @@ mbrsys features and limitations:
   or FAT32, and mbrsys makes a recommendation), no need for manual
   calculations.
 * No need to run any tool (such as fdisk, install-mbr, mkfs.vfat, mformat,
-  ms-sys, bootlace.com) on the host system, everything is automatic, and
-  everything is run with the correct autodetected parameters.
-* No need to run any tool (such as fdisk.exe, sys.com or format.com) in the
-  virtual machine, everything is automatic, and everything is run with the
-  correct autodetected parameters.
+  ms-sys, bootlace.com) on the host system, the output of mbrsys is is a
+  complete, proper, bootable filesystem and partition table, with parameters
+  and sizes correctly autodetected and adjusted.
+* No need to run any tool (such as fdisk.exe, sys.com or format.com) within
+  the virtual machine, mbrsys has already created the filesystem and
+  partition table, and made them bootable before these tools would run.
 * It works with both CHS and LBA (EBIOS) hard disk addressing. It
   autodetects both, and chooses the one which works better.
 * It automates partition sector alignment so that it works in DOS <=6.22 and
