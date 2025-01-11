@@ -224,7 +224,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		jne .done_ebios	 ; No EBIOS.
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
-		mov [bp-.header+.read_sector+1], al  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'. (AL is still 0 here.)
+		mov byte [bp-.header+.read_sector_c+1], .read_sector_lba-(.read_sector_c+3)  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'.
 %endif
 .done_ebios:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
 		mov ah, 8  ; Read drive parameters.
@@ -380,7 +380,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; Reads a single sector from the specified BIOS drive, using LBA (EBIOS) if available, otherwise falling back to CHS.
 ; Inputs: DX:AX: sector offset (LBA) on the drive; ES:BX: points to read buffer.
 ; Output: DL: drive number. Halts on failures.
-; Ruins: AX, CX, DX (output), flags.
+; Ruins: flags.
 ;
 ; This is a library function which can be called from boot_sector.boot_code
 ; using `call mbr.read_sector+(.org-mbr.org)'. Of course, library
@@ -394,13 +394,19 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; and have the same value. The boot_sector.boot_code must do a `mov
 ; [bp-.header+.drive_number0], dl' to make it work.
 .read_sector:
-		jmp short .read_sector_chs  ; Self-modifying code: EBIOS autodetection may change this to `jmp short .read_sector_lba' by setting byte [bp-.header+.read_sector+1] := 0.
-		; Fall through to .read_sector_lba.
+		push ax  ; Save.
+		push cx  ; Save.
+		push dx  ; Save.
+.read_sector_c:	call .read_sector_chs  ; Self-modifying code: EBIOS autodetection may change this to `jmp short .read_sector_lba' by setting byte [bp-.header+.read_sector_c].
+		pop dx  ; Restore.
+		pop cx  ; Restore.
+		pop ax  ; Restore.
+		ret
 
 ; Reads a single sector from the specified BIOS drive, using LBA (EBIOS).
 ; Inputs: DX:AX: LBA sector offset (LBA) on the drive; ES:BX: points to read buffer.
 ; Output: DL: drive number. Halts on failures.
-; Ruins: AH, CX, DX (output), flags.
+; Ruins: AH, CX, DH, flags.
 .read_sector_lba:
 		push si
 		; Construct .dap (Disk Address Packet) for BIOS int 13h AH == 42, on the stack.
@@ -699,13 +705,7 @@ assert_at .header+0x200
 ; Output: CF: indicates error. DX:AX: Incremented by 1. BX: incremented by 0x200.
 ; Ruins: flags.
 .read_sector:
-		push ax  ; Save.
-		push dx  ; Save.
-		push cx  ; Save.
 		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space.
-		pop cx  ; Restore.
-		pop dx  ; Restore.
-		pop ax  ; Restore.
 		add ax, byte 1
 		adc dx, byte 0
 		add bh, 2  ; add bx, [bp-.header+.bytes_per_sector]  ; Hardcoded 0x200.
@@ -1006,16 +1006,10 @@ boot_sector_fat32:
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector.
 .read_disk:
-		push ax  ; Save.
 		push bx  ; Save.
-		push cx  ; Save.
-		push dx  ; Save.
 		xor bx, bx  ; Use offset 0 in ES:BX.
 		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-		pop dx  ; Restore.
-		pop cx  ; Restore.
 		pop bx  ; Restore.
-		pop ax  ; Restore.
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		ret
@@ -1276,16 +1270,10 @@ boot_sector_fat16_new:
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector.
 .read_disk:
-		push ax  ; Save. !! push+pop 2 more registers (AX, DX) in mbr.boot_code, there is room for that.
 		push bx  ; Save.
-		push cx  ; Save.
-		push dx  ; Save.
 		xor bx, bx  ; Use offset 0 in ES:BX.
 		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
-		pop dx  ; Restore.
-		pop cx  ; Restore.
 		pop bx  ; Restore.
-		pop ax  ; Restore.
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		ret
