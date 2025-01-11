@@ -146,6 +146,7 @@ truncate -s 75614720 hde.img  # (131620+255*63) sectors. !! Maybe QEMU needs les
 dd if=fat16m.bin bs=65536 of=hde.img conv=notrunc,sparse
 mcopy -bsomp -i hde.img empty.dat ::E0
 mcopy -bsomp -i hde.img empty.dat ::E1
+#mcopy -bsomp -i hde.img IO.SYS.msdos622.packed ::IO.SYS  # Starting MS-DOS..., but then it doesn't boot.
 mcopy -bsomp -i hde.img IO.SYS.win95osr2 ::IO.SYS
 #mcopy -bsomp -i hde.img IO.SYS.win98se ::IO.SYS
 mattrib -i hde.img +s ::IO.SYS
@@ -154,6 +155,7 @@ mcopy -bsomp -i hde.img empty.dat ::E3
 mcopy -bsomp -i hde.img empty.dat ::E4
 mcopy -bsomp -i hde.img MSDOS.SYS.win95 ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays.
 mattrib -i hde.img +s ::MSDOS.SYS
+#mcopy -bsomp -i hde.img COMMAND.COM ::COMMAND.COM
 mcopy -bsomp -i hde.img COMMAND.COM.win95osr2 ::COMMAND.COM
 #mcopy -bsomp -i hde.img COMMAND.COM.win98se ::COMMAND.COM
 
@@ -214,15 +216,17 @@ mcopy -bsomp -i hdi.img empty.dat ::E1
 mcopy -bsomp -i hdi.img IO.SYS.win95osr2 ::IO.SYS
 #mcopy -bsomp -i hdi.img IO.SYS.win98se ::IO.SYS
 #mcopy -bsomp -i hdi.img IO.SYS.msdos8 ::IO.SYS
+#mcopy -bsomp -i hdi.img IO.SYS.win98cdn7.1packedpts ::IO.SYS
 mattrib -i hdi.img +s ::IO.SYS
 mcopy -bsomp -i hdi.img empty.dat ::E2
 mcopy -bsomp -i hdi.img empty.dat ::E3
 mcopy -bsomp -i hdi.img empty.dat ::E4
-mcopy -bsomp -i hdi.img MSDOS.SYS.win95 ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays.
+mcopy -bsomp -i hdi.img MSDOS.SYS.win95 ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays. msdos.sys not needed by IO.SYS.win98cdn7.1packed (but otherwise if it exists, it needs SystemReg=0 in msdos.sys).
 mattrib -i hdi.img +s ::MSDOS.SYS
 mcopy -bsomp -i hdi.img COMMAND.COM.win95osr2 ::COMMAND.COM
 #mcopy -bsomp -i hdi.img COMMAND.COM.win98se ::COMMAND.COM
 #mcopy -bsomp -i hdi.img COMMAND.COM.msdos8 ::COMMAND.COM
+#mcopy -bsomp -i hdi.img COMMAND.COM.win98cdn7.1 ::COMMAND.COM
 
 nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdj.img
