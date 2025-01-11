@@ -421,27 +421,36 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; Output: DL: drive number; CX: CHS cyl_sec value; DH: CHS head value. Halts on failures.
 ; Ruins: AX, CX (output), DH (output), flags.
 .read_sector_chs:
-		push bx
-		mov bx, [bp-.header+.sectors_per_track]
-		xchg cx, ax  ; CX := AX (save it for later), AX := junk.
-		xor ax, ax
-		cmp dx, bx
-		jb .small
+		; Converts sector offset (LBA) value in DX:AX to BIOS-style
+		; CHS value in CX and DH. Ruins DL, AX and flag. This is
+		; heavily optimized for code size.
+		xchg ax, cx
 		xchg ax, dx
-		div bx  ; We neeed this extra division if io.sys is near the end of the 2 GiB filesystem (with 32 KiB clusters, sectors_per_track==63, sector_number =~ 258+65518*64).
-.small:		xchg ax, cx
-		div bx
-		xchg dx, cx
-		inc cx  ; Like `inc cl`, but 1 byte shorter.
-		mov bl, cl  ; BL := sec.
-		div word [bp-.header+.head_count]
-		mov dh, dl  ; DH := head.
-		xchg al, ah
-		mov cl, 6
-		shl al, cl
-		xchg cx, ax  ; CX := AX; AX := junk.
-		or cl, bl
-		pop bx
+		xor dx, dx
+		div word [bp-.header+.sectors_per_track]  ; We assume that .sectors_per_track is between 1 and 63.
+		xchg ax, cx
+		div word [bp-.header+.sectors_per_track]
+		inc dx  ; Like `inc dl`, but 1 byte shorter. Sector numbers start with 1.
+		xchg cx, dx  ; CX := sec value.
+		div word [bp-.header+.head_count]  ; We assume that .head_count is between 1 and 255.
+		; Now AX is the cyl value (BIOS allows between 0 and 1023),
+		; DX is the head value (between 0 and 254), thus the DL is
+		; also the head value, CX is the sec value (BIOS allows
+		; between 1 and 63), thus CL is also the sec value. Also the
+		; high 6 bits of AH (and AX) are 0, because BIOS allows cyl
+		; value less than 1024. (Thus `ror ah, 1` below works.)
+		;
+		; BIOS int 13h AH == 2 wants the head value in DH, the low 8
+		; bits of the cyl value in CH, and it wants CL ==
+		; (cyl>>8<<6)|head. Thus we copy DL to DH (cyl value), AL to
+		; CH (low 8 bits of the cyl value), AH to CL (sec value),
+		; and or the 2 bits of AH (high 8 bits of the cyl value)
+		; shifted to CL.
+		mov dh, dl
+		mov ch, al
+		ror ah, 1
+		ror ah, 1
+		or cl, ah
 		mov dl, [bp-.header+.drive_number]  ; !! This offset depends on the filesystem type (FAT16 or FAT32). %if fat_32.
 		mov ax, 0x201  ; AL == 1 means: read 1 sector.
 		int 0x13  ; BIOS syscall to read sectors.
