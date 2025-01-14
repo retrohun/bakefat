@@ -520,7 +520,7 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		add ax, si
 		mov cx, ax
 		rcr ax, 1
-		and ch, 1  ; Keep low 9 bits in CX (will be swapped to ESI).
+		and ch, 1  ; Keep low 9 bits in CX (will be swapped to SI).
 		xchg cx, si  ; CX := cluster number; SI := byte offset of the pointer word.
 		mov ch, cl  ; Keeping it for the low bit (parity).
 		mov cl, 4  ; Bit shift amount of 4 for FAT12.
@@ -571,7 +571,7 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		jnz .odd
 		shl ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
 .odd:		shr ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
-.done:		; Now: DX:AX is the number of next cluster (DX is garbage for FAT12 and FAT16).
+		; Now: DX:AX is the number of next cluster (DX is garbage for FAT12 and FAT16).
 		pop cx  ; Restore.
 		pop es  ; Restore.
 		pop si  ; Restore.

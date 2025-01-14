@@ -772,18 +772,10 @@ assert_fofs partition_1_sec_ofs<<9
 .boot_code:
 %if fat_32
 assert_at .header+0x5a
-		incbin 'boot.bin', 0x85a, 0x1fe-0x5a
-%elifdef NEW_FAT16_BS
-		incbin 'boot.bin', 0xa3e, 0x1fe-0x3e
-%elif fat_sectors_per_cluster==1  ; !! Use the same code for any value of fat_sectors_per_cluster.
-assert_at .header+0x3e
-		incbin 'boot.bin', 0x23e, 0x1fe-0x3e
-%elif fat_sectors_per_cluster==2
+		incbin 'boot.bin', 0x25a, 0x1fe-0x5a
+%else
 assert_at .header+0x3e
 		incbin 'boot.bin', 0x43e, 0x1fe-0x3e
-%else  ; fat_sectors_per_cluster>=4
-assert_at .header+0x3e
-		incbin 'boot.bin', 0x63e, 0x1fe-0x3e
 %endif
 .boot_signature: dw BOOT_SIGNATURE
 assert_at .header+0x200
