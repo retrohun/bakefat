@@ -272,19 +272,19 @@ if true; then
   rm -f hdk.img
   truncate -s 306M hdk.img  # !! Make the imege smaller.
   dd if=fat16m.bin bs=65536 of=hdk.img conv=notrunc,sparse
-#  mcopy -bsomp -i hdk.img empty.dat ::E0
-#  mcopy -bsomp -i hdk.img empty.dat ::E1
+  mcopy -bsomp -i hdk.img hi.dat ::E0
+  mcopy -bsomp -i hdk.img hi.dat ::E1
   mcopy -bsomp -i hdk.img IBMBIO.COM.pcdos71.fat1 ::IBMBIO.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
   mattrib -i hdk.img +s ::IBMBIO.COM  # !! First 3 sectors must be contiguous for booting MS-DOS 6.22.
-#  mcopy -bsomp -i hdk.img empty.dat ::E2
-#  mcopy -bsomp -i hdk.img empty.dat ::E3
-#  mcopy -bsomp -i hdk.img empty.dat ::E4
+  mcopy -bsomp -i hdk.img hi.dat ::E2
+  mcopy -bsomp -i hdk.img hi.dat ::E3
+  mcopy -bsomp -i hdk.img hi.dat ::E4
   mcopy -bsomp -i hdk.img IBMDOS.COM.pcdos71 ::IBMDOS.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
   mattrib -i hdk.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
   mcopy -bsomp -i hdk.img COMMANDI.COM ::COMMAND.COM
   mcopy -bsomp -i hdk.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
   mcopy -bsomp -i hdk.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
-else
+else  # Use the IBM PC DOS 7.1 FAT32 boot sector.
   nasm-0.98.39 -DFAT_32=1 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -DFAT_CLUSTER_COUNT=0x3fffe -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
   rm -f hdk.img
   truncate -s 306M hdk.img  # !! Make the imege smaller.
