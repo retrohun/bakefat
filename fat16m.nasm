@@ -612,7 +612,11 @@ assert_at .header+0xe
 assert_at .header+0x10
 .fat_count:	db (%3)  ; Must be 1 or 2. MS-DOS 6.22 supports only 2. Windows 95 DOS mode supports 1 or 2.
 assert_at .header+0x11
+%if (%7)  ; FAT32.
+.rootdir_entry_count: dw 0
+%else
 .rootdir_entry_count: dw (%6)<<4  ; Each FAT directory entry is 0x20 bytes. Each sector is 0x200 bytes.
+%endif
 assert_at .header+0x13
 %if (%7) || (((%2)+(%8))&~0xffff)
 .sector_count_zero: dw 0  ; See true value in .sector_count.
@@ -623,7 +627,7 @@ assert_at .header+0x15
 .media_descriptor: db 0xf8  ; 0xf8 for HDD.
 assert_at .header+0x16
 %if (%7)  ; FAT32.
-.sectors_per_fat: dw 0
+.sectors_per_fat: dw 0  ; IBM PC DOS 7.1 msload detects FAT32 by comparing this to 0.
 %else
 .sectors_per_fat: dw (%5)
 %endif

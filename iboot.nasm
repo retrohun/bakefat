@@ -238,7 +238,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov ah, 8  ; Read drive parameters.
 		mov [bp-.header+.drive_number], dl  ; .drive_number passed to the MBR .boot_code by the BIOS in DL.
 		push dx
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 		jc .jc_fatal1
 		and cx, byte 0x3f
 		mov [bp-.header+.sectors_per_track], cx
@@ -248,7 +248,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov [bp-.header+.head_count], dx
 		mov ah, 1  ; Get status of last drive operation. Needed after the AH == 8 call.
 		pop dx  ; mov dl, [bp-.header+.drive_number]
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 
 		mov si, -.org+.partition_1-0x10
 		mov cx, 4  ; Try at most 4 partitions (that's how many fit to the partition table).
@@ -500,7 +500,7 @@ assert_at .header+0x200
 		xor di, di  ; Workaround for buggy BIOS.
 		mov ah, 8  ; Read drive parameters.
 		mov [bp-.header+.drive_number], dl  ; .drive_number passed to the boot sector .boot_code by the MBR .boot_code in DL.
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 		jc .jmp_fatal
 		and cx, byte 0x3f
 		mov [bp-.header+.sectors_per_track], cx
@@ -510,7 +510,7 @@ assert_at .header+0x200
 		mov [bp-.header+.head_count], dx
 		mov ah, 1  ; Get status of last drive operation. Needed after the AH == 8 call.
 		mov dl, [bp-.header+.drive_number]
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 %endif
 
 %if 0  ; Not needed when booting from HDD.
@@ -1128,9 +1128,10 @@ boot_sector_fat32:
 		adc dx, [bp-.header+.var_clusters_sec_ofs+2]  ; Also CF := 0 for regular data.
 		ret
 
-; Read a sector from disk, using LBA or CHS.
+; Reads a sector from disk, using LBA or CHS.
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector; SI: ruined.
+; Ruins: flags.
 .read_disk:
 		push ax  ; Save.
 		push cx  ; Save.

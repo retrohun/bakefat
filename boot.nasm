@@ -79,7 +79,7 @@ BOOT_SIGNATURE equ 0xaa55  ; dw.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 ;
 .header:	jmp strict short .boot_code
-		nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA. !! Who else uses it? It is ignored by our .boot_code.
+.chs_or_lba_byte: nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload. !! Who else uses it? It is ignored by our .boot_code.
 assert_at .header+3
 .oem_name:	db 'MSDOS5.0'
 assert_at .header+0xb
@@ -91,7 +91,11 @@ assert_at .header+0xe
 assert_at .header+0x10
 .fat_count:	db (%3)  ; Must be 1 or 2. MS-DOS 6.22 supports only 2. Windows 95 DOS mode supports 1 or 2.
 assert_at .header+0x11
-.rootdir_entry_count: dw (%6)<<4  ; Each FAT directory entry is 0x20 bytes. Each sector is 0x200 bytes.
+%if (%7)  ; FAT32.
+.rootdir_entry_count: dw 0
+%else
+.rootdir_entry_count: dw (%6)<<4  ; Each FAT directory entry is 0x20 bytes. FAT32 has 0 here. Each sector is 0x200 bytes.
+%endif
 assert_at .header+0x13
 %if (%7) || (((%2)+(%8))&~0xffff)
 .sector_count_zero: dw 0  ; See true value in .sector_count.
@@ -102,7 +106,7 @@ assert_at .header+0x15
 .media_descriptor: db 0xf8  ; 0xf8 for HDD.
 assert_at .header+0x16
 %if (%7)  ; FAT32.
-.sectors_per_fat: dw 0
+.sectors_per_fat: dw 0  ; IBM PC DOS 7.1 msload detects FAT32 by comparing this to 0.
 %else
 .sectors_per_fat: dw (%5)
 %endif
@@ -230,7 +234,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov ah, 8  ; Read drive parameters.
 		mov [bp-.header+.drive_number0], dl  ; .drive_number0 passed to the MBR .boot_code by the BIOS in DL.
 		push dx
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 		jc .jc_fatal1
 		and cx, byte 0x3f
 		mov [bp-.header+.sectors_per_track], cx
@@ -240,7 +244,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov [bp-.header+.head_count], dx
 		mov ah, 1  ; Get status of last drive operation. Needed after the AH == 8 call.
 		pop dx  ; mov dl, [bp-.header+.drive_number0]
-		int 13h  ; BIOS syscall.
+		int 0x13  ; BIOS syscall.
 
 		mov si, -.org+.partition_1-0x10
 		mov cx, 4  ; Try at most 4 partitions (that's how many fit to the partition table).
@@ -958,7 +962,7 @@ boot_sector_fat32:
 		add ax, [bp-.header+.var_fat_sec_ofs]
 		adc dx, [bp-.header+.var_fat_sec_ofs+2]
 		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8'. Only works for FAT32.
-		; Now: DX:AX is the sector offset (LBA), BX is the byte offset within the sector.
+		; Now: DX:AX is the sector offset (LBA), SI is the byte offset within the sector.
 		; Is it the last accessed and already buffered FAT sector?
 		cmp ax, [bp-.header+.var_single_cached_fat_sec_ofs]
 		jne .fat_read_sector_now
@@ -1002,9 +1006,10 @@ boot_sector_fat32:
 		adc dx, [bp-.header+.var_clusters_sec_ofs+2]  ; Also CF := 0 for regular data.
 		ret
 
-; Read a sector from disk, using LBA or CHS.
+; Reads a sector from disk, using LBA or CHS.
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector.
+; Ruins: flags.
 .read_disk:
 		push bx  ; Save.
 		xor bx, bx  ; Use offset 0 in ES:BX.
@@ -1266,9 +1271,10 @@ boot_sector_fat16_new:
 		; Now: AX: next cluster number; DX: ruined.
 		jmp short .next_kernel_cluster
 
-; Read a sector from disk, using LBA or CHS.
+; Reads a sector from disk, using LBA or CHS.
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
 ; Outputs: DX:AX incremented by 1, for next sector.
+; Ruins: flags.
 .read_disk:
 		push bx  ; Save.
 		xor bx, bx  ; Use offset 0 in ES:BX.
