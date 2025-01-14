@@ -12,9 +12,8 @@
 ;
 ; Limitations:
 ;
-; * !! No floppy disk support (i.e. DPT).
-; * !! No reboot-on-keypress support.
-; * !! Reads a single sector at a time. It could do batches of up to 0x40
+; * !! No floppy disk support (i.e. DPT). To add support, copy the DPT first.
+; * Reads a single sector at a time. It could do batches of up to 0x40
 ;   sectors == 0x8000 bytes, as long as they are contiguous on disk.
 ; * It is not able load and decompress the Windows ME compressed msbio
 ;   payload. (But it is able to load the uncompressed version by the
@@ -111,7 +110,7 @@ var:
 .end: equ var+0x62
 
 ; Use it for getting offset of local variables when running the relocated
-; msload: `mov si, -rorg+errmsg'.
+; msload: `mov si, -rorg+errmsg_dos7'.
 rorg: equ $-0x800
 
 CHS_OR_LBA:
@@ -304,19 +303,21 @@ read_sector:
 		sub sp, byte 0x10  ; Adapt to the .do_read ABI.
 		jmp short .do_read
 
-fatal1:		mov si, -rorg+errmsg
-; Prints NUL-terminated message starting at SI, and halts.
-fatal:
+fatal1:		mov si, -rorg+errmsg_dos7
+fatal:		mov ax, -rorg+cont_fatal  ; Continue here after print_msg.
+		push ax  ; Return address for simulated `call'.
+		; Fall through to print_msg.
+
+; Prints NUL-terminated message starting at DS:SI, and halts.
+; Ruins: AX, BX, SI, flags.
+print_msg:	mov ah, 0xe
+		mov bx, 7
 .next_msg_byte:	lodsb
 		test al, al  ; Found terminating NUL?
-		jz .halt
-		mov ah, 0xe
-		mov bx, 7
+		jz .ret
 		int 0x10
 		jmp short .next_msg_byte
-.halt:		cli
-.hang:		hlt
-		jmp short .hang
+.ret:		ret
 
 cont_relocated:	; Now: AX==CS==DS==ES==SS: segment of the relocated msload; BP==SP==0x800: offset of the relocated msload; BX: any; CX: 0; DL: .drive_number; DH: any; SI: any; DI: any.
 		;
@@ -418,9 +419,9 @@ detect_fat12:  ; Input: CX == 0.
 .done:
 
 		mov es, [bp+jump_to_msbio.jmp_far_inst+3]
-		jmp strict near read_msbio
+		jmp short read_msbio
 
-errmsg:		db 'DOS7 load error', 0
+errmsg_dos7:	db 'DOS7 load error', 0
 errmsg_disk:	db 'Disk error', 0	
 
 		times 0x200-($-$$) db '-'
@@ -569,7 +570,6 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		pop cx  ; Restore.
 		pop es  ; Restore.
 		pop si  ; Restore.
-
 		jmp strict near next_kernel_cluster
 
 read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp+var.single_cached_fat_sec_ofs].
@@ -577,11 +577,24 @@ read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offs
 		mov [bp+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		jmp strict near read_sector  ; Tail call.
 
-replace_msg:	db 13, 10, 'Replace the disk, and then press any key', 13, 10, 0, 0  ; Same message as in Windows 98 SE.
+cont_fatal:  ; Continue handling a fatal error.
+		mov si, -rorg+errmsg_replace
+		call print_msg
+		xor ax, ax
+		mov ds, ax
+		int 0x16  ; Wait for keystroke, and read it.
+		les di, [bp+var.orig_dipt_offset]
+		mov si, (0x1e<<2)  ; DPT (.dipt) int 1eh vector.
+		mov [si], di  ; Offset of int 1eh vector.
+		mov [si+2], es  ; Segment of int 1eh vector.
+		int 0x19  ; Reboot.
+		; Not reached.
+
+errmsg_replace:	db 13, 10, 'Replace the disk, and then press any key', 13, 10, 0, 0  ; Same message as in Windows 98 SE.
 
 %if 0  ; For debugging.
 		mov al, [bp+var.chs_or_lba]
-		mov [bp+errmsg], al
+		mov [bp+errmsg_dos7], al
 		jmp fatal1
 %endif
 
