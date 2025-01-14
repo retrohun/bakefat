@@ -5,7 +5,7 @@
 ; Compile with: nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1sms shortmsload.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
-; Improvements:
+; Improvements over MS-DOS 7.1 (particularly Windows 98 SE) msload:
 ;
 ; * 2 sectors (1024 bytes) instead of 4 sectors.
 ; * It can load a fragmented io.sys.
@@ -13,11 +13,15 @@
 ; Limitations:
 ;
 ; * !! No floppy disk support (i.e. DPT).
+; * !! No reboot-on-keypress support.
 ; * !! Reads a single sector at a time. !! TODO(pts): Do batches as long as they are contiguous on disk.
 ; * It is not able load and decompress the Windows ME compressed msbio
 ;   payload. (But it is able to load the uncompressed version by the
 ;   unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
 ;   http://www.multiboot.ru/download/).
+;
+; For documentation, see https://retrocomputing.stackexchange.com/a/15598 and
+; https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
 ;
 ; Memory layout:
 ;
@@ -412,7 +416,7 @@ detect_fat12:  ; Input: CX == 0.
 		inc byte [bp+var.is_fat12]
 .done:
 
-		mov es, [bp+read_msbio.jmp_far_inst+3]
+		mov es, [bp+jump_to_msbio.jmp_far_inst+3]
 		jmp strict near read_msbio
 
 errmsg:		db 'DOS7 load error', 0
@@ -424,17 +428,46 @@ assert_fofs 0x200
 ; The boot sector boot code jumps here: jmp 0x70:200; with CS: 0x70; IP: 0x200; SS: 0; BP: 0x7c00; DL: drive number.
 entry:		db 'BJ'  ; Magic bytes: `inc dx ++ dec dx'. The Windows 98 SE boot sector code checks for this: cmp word [bx+0x200], 'BJ'
 		jmp strict near load_code
+
 read_msbio:  ; Execution continues here after `jmp near read_msbio', after `load_code'.
 		mov ax, [bp+var.our_cluster_ofs]
 		mov dx, [bp+var.our_cluster_ofs+2]
-.next_kernel_cluster:
+next_kernel_cluster:
 		push dx
 		push ax  ; Save cluster number (DX:AX).
-		call cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].  !! Inline it, this is the only call.
-		jnc .read_kernel_sector
+
+cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and FAT16) to the sector offset (LBA).
+		;call print_star  ; For debugging.
+		cmp word [bp+bpb.sectors_per_fat_fat1x], byte 0
+		je .fat32
+		;call print_dot  ; For debugging.
+		xor dx, dx
+		cmp [bp+var.is_fat12], dl
+		je .cmp_low  ; Jump for FAT16.
+		cmp ax, strict word 0xff0  ; FAT12 maximum number of clusters: 0xff8. !! FAT12 cluster 0 has 0xff0. Why does DOS and Windows msload check for 0xff8 instead?
+		jmp short .jb_low
+.fat32:		cmp dx, 0x0fff
+		jne .jb_low
+.cmp_low:	cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8. FAT16 maximum number of clusters: 0xfff8.
+.jb_low:	jb .no_eoc
 		; EOC encountered before we could read the desired number of sectors.
 		jmp strict near fatal1
-.read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
+.no_eoc:	sub ax, byte 2
+		sbb dx, byte 0
+		; !! Check that cluster number was at least 2. If not, fatal1.
+		; Sector := (cluster-2) * clustersize + data_start.
+		mov cl, [bp+bpb.sectors_per_cluster]
+		push cx  ; Save for CH.
+		jmp short .maybe_shift
+.next_shift:	shl ax, 1
+		rcl dx, 1
+.maybe_shift:	shr cl, 1
+		jnz .next_shift
+		pop cx  ; Restore for CH.
+		add ax, [bp+var.clusters_sec_ofs]
+		adc dx, [bp+var.clusters_sec_ofs+2]
+
+read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
 		sub byte [bp+var.skip_sector_count], 1
 		jnc .after_sector
 		inc byte [bp+var.skip_sector_count]  ; Change it back from -1 to 0.
@@ -446,8 +479,9 @@ read_msbio:  ; Execution continues here after `jmp near read_msbio', after `load
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		sub word [bp+var.msbio_remaining_para_count], byte 0x20
-		ja .cont_kernel_cluster
-.jump_to_msbio:
+		ja continue_reading
+
+jump_to_msbio:
 		; No need to pop anything, msbio v7 (START$, then INIT in bios/msinit.asm) doesn't look at the stack.
 		;call print_dot  ; For debugging.
 		xor ax, ax  ; `mov ax, [0x7fa]' of the original (0x800-byte) msload, the value is 0.
@@ -456,19 +490,14 @@ read_msbio:  ; Execution continues here after `jmp near read_msbio', after `load
 		mov dl, [bp+var.drive_number]
 		mov dh, [bp+bpb.media_descriptor]  ; Is this actually used? https://retrocomputing.stackexchange.com/q/31129
 .jmp_far_inst:	jmp 0x70:0  ; Jump to msbio loaded from io.sys.
-.cont_kernel_cluster:
+
+continue_reading:
 		dec cl  ; Consume 1 sector from the cluster.
-		jnz .read_kernel_sector
+		jnz read_kernel_sector
 		pop ax
 		pop dx  ; Restore cluster number (DX:AX).
-		call next_cluster  ;  !! Inline it, this is the only call.
-		jmp short .next_kernel_cluster
 
-; Given a cluster number, find the number of the next cluster in the FAT32
-; chain. Needs .var_fat_sec_ofs.
-; Inputs: DX:AX: cluster number. DX is ignored for FAT12 and FAT16.
-; Outputs: DX:AX: next cluster number; SI: ruined.
-next_cluster:
+next_cluster:  ; Find the number of the next cluster following DX:AX (DX is ignored for FAT12 and FAT16) in the FAT chain.
 		;call print_dot  ; For debugging.
 		push si  ; Save.
 		push es  ; Save.
@@ -516,14 +545,14 @@ next_cluster:
 		cmp dx, [bp+var.single_cached_fat_sec_ofs+2]
 		je .fat_sector_read
 .fat_read_sector_now:
-		call .read_fat_sector_to_cache
+		call read_fat_sector_to_cache
 .fat_sector_read:
 		push word [es:si]  ; Save low word of next cluster number.
 		cmp si, 0x1ff
 		jne .got_new_pointer
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
-		call .read_fat_sector_to_cache
+		call read_fat_sector_to_cache
 		pop ax  ; Restore low word of next cluster number to AX.
 		mov ah, [es:0]  ; Get high byte of next cluster number from the next sector.
 		push ax  ; Make the following `pop ax' a nop.
@@ -535,50 +564,17 @@ next_cluster:
 		jnz .odd
 		shl ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
 .odd:		shr ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
-.done:		pop cx  ; Restore.
+.done:		; Now: DX:AX is the number of next cluster (DX is garbage for FAT12 and FAT16).
+		pop cx  ; Restore.
 		pop es  ; Restore.
 		pop si  ; Restore.
-		ret
-.read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp+var.single_cached_fat_sec_ofs].
+
+		jmp strict near next_kernel_cluster
+
+read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp+var.single_cached_fat_sec_ofs].
 		mov [bp+var.single_cached_fat_sec_ofs], ax
 		mov [bp+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		jmp strict near read_sector  ; Tail call.
-
-; Converts cluster number to the sector offset (LBA).
-; Inputs: DX:AX: target cluster (DX is ignored for FAT12 and FAT16); .var.clusters_sec_ofs, .sectors_per_cluster.
-; Outputs on EOC: CF=1.
-; Outputs on non-EOC: CF=0; DX:AX: sector offset (LBA); CL: .sectors_per_cluster value.
-cluster_to_lba:
-		;call print_star  ; For debugging.
-		cmp word [bp+bpb.sectors_per_fat_fat1x], byte 0
-		je .fat32
-		;call print_dot  ; For debugging.
-		xor dx, dx
-		cmp [bp+var.is_fat12], dl
-		je .cmp_low  ; Jump for FAT16.
-		cmp ax, strict word 0xff0  ; FAT12 maximum number of clusters: 0xff8. !! FAT12 cluster 0 has 0xff0. Why does DOS and Windows msload check for 0xff8 instead?
-		jmp short .jb_low
-.fat32:		cmp dx, 0x0fff
-		jne .jb_low
-.cmp_low:	cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8. FAT16 maximum number of clusters: 0xfff8.
-.jb_low:	jb .no_eoc
-		stc
-		ret
-.no_eoc:	sub ax, byte 2
-		sbb dx, byte 0
-		; !! Check that cluster number was at least 2. If not, fatal1.
-		; Sector := (cluster-2) * clustersize + data_start.
-		mov cl, [bp+bpb.sectors_per_cluster]
-		push cx  ; Save for CH.
-		jmp short .maybe_shift
-.next_shift:	shl ax, 1
-		rcl dx, 1
-.maybe_shift:	shr cl, 1
-		jnz .next_shift
-		pop cx  ; Restore for CH.
-		add ax, [bp+var.clusters_sec_ofs]
-		adc dx, [bp+var.clusters_sec_ofs+2]  ; Also CF := 0 for regular data.
-		ret
 
 %if 0  ; For debugging.
 		mov al, [bp+var.chs_or_lba]
