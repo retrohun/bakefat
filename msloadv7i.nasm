@@ -9,10 +9,10 @@
 ;
 ; * 2 sectors (1024 bytes) instead of 4 sectors.
 ; * It can load a fragmented io.sys.
+; * It uses 8086 instructions only (no 386).
 ;
 ; Limitations:
 ;
-; * !! No floppy disk support (i.e. DPT). To add support, copy the DPT first.
 ; * Reads a single sector at a time. It could do batches of up to 0x40
 ;   sectors == 0x8000 bytes, as long as they are contiguous on disk.
 ; * It is not able load and decompress the Windows ME compressed msbio
@@ -212,6 +212,11 @@ initialized_data.end:
 %endif
 		pop word [di+var.orig_dipt_offset]   ; Use value from boot sector boot code.
 		pop word [di+var.orig_dipt_segment]  ; Use value from boot sector boot code.
+		; No need to move around the 0xb bytes of the DPT (current
+		; int 13h vector), we can assume that the boot sector has
+		; set it up to a location which survives the boot process.
+		; The Windows 95--98--ME boot sectos copy the 0xb bytes to
+		; 0:0x522, which is such an address.
 		add [di+var.fat_cache_segment], ax
 		mov dl, [bp+var.drive_number]  ; Windows 98 SE boot sector doesn't pass DL to msload. This is only correct for FAT32. We get it later for non-FAT32.
 		mov bp, di  ; BP := 0x800.
