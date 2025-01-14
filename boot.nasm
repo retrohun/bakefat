@@ -199,7 +199,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; emulators such as QEMU.
 ;
 ; !! Does the Windows 95 MBR (`ms-sys -9`) also ignore the CHS value in the partition entry?
-; !! Use LBA (EBIOS) is avaolable to boot from partitions starting above 8 GiB. Unfortunately, .write_boot_sector would break.
+; !! Use LBA (EBIOS) is available to boot from partitions starting above 8 GiB. Unfortunately, .write_boot_sector would break.
 		cli
 		xor ax, ax
 		mov si, 0x7c00
@@ -278,7 +278,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		; may have created a different filesystem since the initial
 		; boot.
 		;
-		; !! Write the changes back to the on-disk boot sector (and
+		; Done: Write the changes back to the on-disk boot sector (and
 		;    also to the on-disk MBR), in case an operating system
 		;    reads it again. For example, `dir c:' in FreeDOS 1.0,
 		;    1.1 and 1.2 (but not 1.3) needs a correct
@@ -476,7 +476,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		sub sp, byte 0x10  ; Adapt to the .do_read ABI.
 		jmp short .do_read
 
-.errmsg_disk:	db 'Disk error', 0	
+.errmsg_disk:	db 'Disk error', 0
 .errmsg_os:	db 'No OS', 0
 		;Other typical error message: db 'Missing operating system', 0
 		;Other typical error message: db 'Invalid partition table', 0
@@ -701,7 +701,7 @@ assert_at .header+0x200
 		push ax
 		push bx  ; dword [ss:bp-4] = first data sector of first cluster, including hidden sectors.
 		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
-		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
+		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/msg.asm#l1407 and https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/boot.asm#l2577 .
 
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 ; Reads a single sector from drive. Halts with an error on failure.
@@ -742,10 +742,13 @@ assert_fofs 0x600  ; !! Remove this, keep only the new FAT16 boot code.
 boot_sector_fat16_fspc4:
 		fat16_boot_sector 4  ; fat_sectors_per_cluster.
 
-; --- FAT32 boot sector.
+; --- MS-PC-DOS-v7 universal FAT32 boot sector.
 ;
 ; Features and requirements:
 ;
+; * Please note that this boot sector only works if it is loaded by
+;   the MBR defined earlier this file. This is because preparations and
+;   library functions are implemented in the MBR boot code.
 ; * It is able to boot MS-DOS v7 (Windows 95 OSR2, Windows 98 FE, Windows 98
 ;   SE, the unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
 ;   http://www.multiboot.ru/download/) io.sys and IBM PC DOS 7.1 ibmbio.com
@@ -754,18 +757,23 @@ boot_sector_fat16_fspc4:
 ; * With some additions (in the future), it may be able to boot FreeDOS
 ;   (kernel.sys), SvarDOS (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x
 ;   (ntldr), Windows NT 4.0 (ntldr), Windows 2000 (ntldr), Windows XP
-;   (ntldr). However, room in the 512 bytes is running out, so probably it
-;   would need another sector (or MBR library sector).
+;   (ntldr). However, room in the 512 bytes is running out (also in the MBR
+;   sector), so probably it would need another sector. MBR library sector).
 ; * It autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
 ;   back to CHS. LBA is for >8 GiB HDDs, CHS is for maximum compatibility
-;   with old (before 1996) PC BIOS.
-; * All the boot code fits to the boot sector (512 bytes). No need for
-;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
+;   with old (before 1996) PC BIOS. This autodetection is implemented in the
+;   MBR boot code.
+; * All the boot code fits to the boot sector (512 bytes) and the MBR (512
+;   bytes). No need for loading a sector 2 or 3 like how Windows
+;   95--98--ME--XP boots.
 ; * It works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
 ;   the 386 implementation).
-; * It can only boot from HDD, there is no floppy disk support. (That would
-;   need CHS sector reading and DPT modifications.) Also typical floppy
-;   disks are too small for a FAT32 filesystem.
+; * It can only boot from HDD, there is no floppy disk support. The
+;   obstacles are the following: uses boot code in the MBR (and floppies
+;   don't have an MBR), DPT modifications would be needed (but they don't
+;   fit). Also floppy disks (most smaller than 10 MiB) are too small for a
+;   FAT32 filesystem (at least 32 MiB: 0x10000 clusters with 0x200 byes
+;   each).
 ;
 ; History:
 
@@ -775,7 +783,8 @@ boot_sector_fat16_fspc4:
 ; * Snapshotted code starting at *Entry_32* in stage2/grldrstart.S in
 ;   grub4dos-0.4.6a-2024-02-26, by pts.
 ; * Adapted to the MS-DOS v7 load protocol (moved away from the
-;   GRLDR--NTLDR load protocol) by pts in January 2025.
+;   GRLDR--NTLDR load protocol) and added IBM PC DOS 7.1 support by pts in
+;   January 2025.
 ;
 ; You can use and copy source code and binaries under the terms of the
 ; GNU Public License (GPL), version 2 or newer. See www.gnu.org for more.
@@ -798,15 +807,29 @@ boot_sector_fat32:
 .var_single_cached_fat_sec_ofs: equ .boot_code  ; dd. Last accessed FAT sector offset (LBA) (overwriting unused bytes).
 .var_fat_sec_ofs: equ .boot_code+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 .var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
+.var_orig_int13_vector: equ .header-8  ; dd. segment:offset. Old DPT pointer.
 
-		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number].
-		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
-		mov [bp-.header+.var_single_cached_fat_sec_ofs], ds   ; Set to 0, i.e. cache empty.
-		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], ds ; Set to 0, i.e. cache empty.
+%if 0  ; This would be awesome, but unfortunately it doesn't fit to the 0x200 bytes. The consequence is that booting from FAT32 floppies may not work (because .sectors_per_track in the DPT is not set).
+		; Copy the disk initialization parameter table (.dipt, DPT).
+		mov bx, 0x1e<<2  ; int 1eh vector (DPT).
+		lds si, [bx]
+		push si
+		mov di, 0x522  ; Windows 95--98--ME also copy to here. https://stanislavs.org/helppc/bios_data_area.html also lists it.
+		mov [es:bx], di  ; Change int 1eh vector (DPT).
+		mov [es:bx+2], es
+		mov cx, 0xb
+		rep movsb  ; Size of the DPT.
+		pop si  ; Will be pushed below.
+		mov byte [es:di-2], 0xf  ; Set floppy head bounce delay == head settle time, in milliseconds, to 0xf: https://stanislavs.org/helppc/int_1e.html ; https://retrocomputing.stackexchange.com/q/31099/3494
+		mov cx, [bp-.header+.sectors_per_track]
+		mov [es:di-7], cl  ; Set sectors_per_track in the DPT.
+%else
+		lds si, [0x1e<<2]  ; int 1eh vector (DPT).
+%endif
 
 		; Figure out where FAT and data areas start.
 		; !! size optimization: Precompute most of this (and for FAT16 as well) at filesystem creation time.
-		xchg dx, ax  ; DX := AX; AX := junk.
+		xchg dx, ax  ; DX := AX (0); AX := junk. AX has been set to 0 by fat_boot_sector_common.
 		mov ax, [bp-.header+.reserved_sector_count]
 		add ax, [bp-.header+.hidden_sector_count]
 		adc dx, [bp-.header+.hidden_sector_count+2]
@@ -820,12 +843,24 @@ boot_sector_fat32:
 		push dx
 		push ax  ; dword [bp-.header+.var_clusters_sec_ofs] := DX:AX.
 
+		push ds  ; Segment of dword [.var_orig_int13_vector].
+		push si  ; Offset of dword [.var_orig_int13_vector].
+		push ds  ; Will be discarded by MS-DOS v7 msload. !! Push 0 for compatibility.
+		push si  ; Will be discarded by MS-DOS v7 msload. !! Push 0x78 for compatibility.
+
+		push es
+		pop ds  ; DS := ES (0).
+		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number].
+		mov [bp-.header+.var_single_cached_fat_sec_ofs],   es  ; Set to 0, i.e. cache empty.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], es  ; Set to 0, i.e. cache empty.
+		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
+		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
+
 		; Search the root directory for a kernel file.
 		mov ax, [bp-.header+.rootdir_start_cluster]
 		mov dx, [bp-.header+.rootdir_start_cluster+2]
                 ; Now: DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem.
 		mov bh, 3  ; BH := missing-filename-bitset (io.sys and msdos.sys).
-
 .next_rootdir_cluster:
 		push dx
 		push ax  ; Save cluster number (DX:AX).
@@ -895,8 +930,8 @@ boot_sector_fat32:
 		pop ax  ; Discard cluster number (DX:AX).
 		mov dx, [0x500+0x14]  ; Get cluster number high word.
 		mov ax, [0x500+0x1a]  ; Get cluster number low word.
-		push dx
-		push ax  ; Save for .jump_to_msload.
+		push dx  ; Save high word of first cluster of load file for .jump_to_msload (will be passed to msload as DI).
+		push ax  ; Save low  word of first cluster of load file for .jump_to_msload (will be passed to msload as SI).
 		; Read msload (first few sectors) of the kernel (io.sys).
 		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
 .next_kernel_cluster:
@@ -913,26 +948,33 @@ boot_sector_fat32:
 		mov es, bx
 		dec ch
 		jnz .cont_kernel_cluster
-.jump_to_msload:  ; !! Can we make it shorter? The old FAT16 implementation seems to be about 32 bytes shorter (without its error message).
+.jump_to_msload:
 		pop dx
 		pop ax  ; Discard current cluster number. This will make the pops pop from the correct offset.
-		; Fill registers according to MS-DOS v6 and v7 load protocol.
-		mov dl, [bp-.header+.drive_number]
-		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
-		pop di
-		pop si  ; SI:DI == first cluster of load file in FAT32. This is used by MS-DOS v7 (e.g. Windows 95 OSR2), but IBM PC DOS 7.01 uses word [0x514] (high word) and word [0x51a] (low word) instead. (DI == first cluster of load file if FAT12 or FAT16.)
-		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
-		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
-		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]  ; IBMP PC DOS 7.1 needs AX:BX to have the value of .var_clusters_sec_ofs. MS-DOS v7 gets it from dword [ss:bp-4] instead.
-		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
-		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
-		push ax
-		push bx  ; dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors.
-		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
-		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
-		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
+		; Fill registers and stack according to the MS-DOS v7 load
+		; protocol:
+		; https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
+		; , also making it work with IBM PC DOS 7.1:
+		; https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-ibmdos .
+		; We don't have to support the MS-DOS v6 (and earlier) load
+		; protocol here, because those versions of DOS don't support
+		; FAT32.
+		mov bx, [bp-.header+.var_clusters_sec_ofs]  ; For IBM PC DOS 7.1.
+		mov ax, [bp-.header+.var_clusters_sec_ofs+2]  ; For IBM PC DOS 7.1.
+		mov dl, [bp-.header+.drive_number]  ; For IBM PC DOS 7.1.
+		mov ch, [bp-.header+.media_descriptor]  ; For IBM PC DOS 7.1
+		; Already filled: .var_clusters_sec_ofs at dword [SS:BP-4] for MS-DOS v7.
+		; Already filled: .drive_number in the BPB (.drive_number_fat1x and .drive_number_fat32) for MS-DOS v7.
+		; Already filled: .media_descritpr in the BPB (.media_descriptor) for MS-DOS v7.
+		pop di  ; Low  word of the start cluster number of load file. For MS-DOS v7. Already filled: word [0x51a] for IBM PC DOS 7.1.
+		pop si  ; High word of the start cluster number of load file. For MS-DOS v7. Already filled: word [0x514] for IBM PC DOS 7.1, FAT32.
+		; Already filled: Low  word of start cluster number of 2nd load file (ibmdos.com) at word [0x53a]. For IBM PC DOS 7.1.
+		; Already filled: High word of start cluster number of 2nd load file (ibmdos.com) at word [0x534]. For IBM PC DOS 7.1, FAT32.
+		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/msg.asm#l1407 and https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/boot.asm#l2577 .
+		; Already filled: [SS:BP] .. [SS:BP+0x5a]. For MS-DOS v7. Boot sector with (E)BPB.
+		; Already filled: [0:0x7c00] .. [0:0x7c5a]. For IBM PC DOS 7.1. Boot sector with (E)BPB.
 		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
+		;lds si, [bp-.header+.var_orig_int13_vector]  ; This would be used only by MS-DOS v6, but that doesn't support FAT32 anyway. Unfortunately SI already contains the high word of the start cluster number of load file.
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
 		dec cl  ; Consume 1 sector from the cluster.
@@ -1032,27 +1074,41 @@ assert_at .header+0x200
 
 assert_fofs 0xa00
 
-; --- New FAT16 boot sector.
+; --- MS-PC-DOS-v4-v5-v6-v7 universal FAT16 boot sector.
 ;
 ; Features and requirements:
 ;
-; * It is able to boot io.sys from Windows 95 RTM (OSR1), Windows 95 OSR
+; * Please note that this boot sector only works if it is loaded by
+;   the MBR defined earlier this file. This is because preparations and
+;   library functions are implemented in the MBR boot code.
+; * It is able to boot io.sys+msdos.sys from MS-DOS 4.01--6.22. Tested with:
+;   4.01, 5.00 and 6.22.
+; * It is able to boot ibmbio.com+ibmdos.com from IBM PC DOS 4.01--7.1.
+;   Tested with: 7.0 and 7.1.
+; * It is able to boot io.sys from Windows 95 RTM (OSR1), Windows 95 OSR 2,
 ;   Windows 98 FE, Windows 98 SE, and the unofficial MS-DOS 8.0 (MSDOS8.ISO
 ;   on http://www.multiboot.ru/download/) based on Windows ME.
-;   !! Add and test with MS-DOS 4.00.
-; * With some additions (in the future), it may be able to boot IBM PC DOS
-;   7.1 (ibmbio.com and ibmdos.com), FreeDOS (kernel.sys), SvarDOS
-;   (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x (ntldr), Windows NT
-;   4.0 (ntldr), Windows 2000 (ntldr), Windows XP (ntldr).
-; * Autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
+; * With some additions (in the future), it may be able to boot FreeDOS
+;   (kernel.sys), SvarDOS (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x
+;   (ntldr), Windows NT 4.0 (ntldr), Windows 2000 (ntldr), Windows XP
+;   (ntldr).
+; * It autodetects EBIOS (LBA) and uses it if available. Otherwise it falls
 ;   back to CHS. LBA is for >8 GiB HDDs, CHS is for maximum compatibility
-;   with old (before 1996) PC BIOS.
-; * All the boot code fits to the boot sector (512 bytes). No need for
-;   loading a sector 2 or 3 like how Windows 95--98--ME--XP boots.
-; * Works with a 8086 CPU (no need for 386). (It's 25 bytes longer than
-;   the 386 implementation).
-; * !! Add and check support for PC-DOS 7.1 (ibmbio.com and imbdos.com), maybe
-;   concatenate them to io.sys. Is it even bootable on its own?
+;   with old (before 1996) PC BIOS. This autodetection is implemented in the
+;   MBR boot code.
+; * All the boot code fits to the boot sector (512 bytes) and the MBR (512
+;   bytes). No need for loading a sector 2 or 3 like how Windows
+;   95--98--ME--XP boots.
+; * It works with a 8086 CPU (no need for 386).
+; * It can only boot from HDD, there is no floppy disk support. The
+;   obstacles are the following: uses boot code in the MBR (and floppies
+;   don't have an MBR), DPT modifications would be needed (but they don't
+;   fit). Also floppy disks (most smaller than 10 MiB) are too small for a
+;   FAT32 filesystem (at least 32 MiB: 0x10000 clusters with 0x200 byes
+;   each).
+; * !! Add a FAT12 boot sector.
+; * !! Add an independent, CHS-harcoded-to-BPB FAT12 boot sector designed
+;   for floppy disks.
 ;
 ; History:
 
@@ -1062,7 +1118,8 @@ assert_fofs 0xa00
 ; * Snapshotted code starting at *Entry_32* in stage2/grldrstart.S in
 ;   grub4dos-0.4.6a-2024-02-26, by pts.
 ; * Adapted to the MS-DOS v7 load protocol (moved away from the
-;   GRLDR--NTLDR load protocol) by pts in January 2025.
+;   GRLDR--NTLDR load protocol), and added MS-DOS v6 load protocol support
+;   by pts in January 2025.
 ; * Changed from FAT32 to FAT16 by pts in January 2025.
 ;
 ; You can use and copy source code and binaries under the terms of the
@@ -1087,13 +1144,24 @@ boot_sector_fat16_new:
 .var_fat_sec_ofs: equ .boot_code+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 .var_single_cached_fat_sec_ofs_low: equ .boot_code+8  ; dw. Last accessed FAT sector offset (LBA), low word (overwriting unused bytes). Some invalid value if not populated.
 .var_clusters_sec_ofs: equ .header-4  ; dd. Sector offset (LBA) of the clusters (i.e. cluster 2) in this FAT filesystem, from the beginning of the drive. This is also the start of the data.
+.var_orig_int13_vector: equ .header-8  ; dd. segment:offset. Old DPT pointer.
 
-		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
-                mov bx, 0x700>>4
-		mov es, bx  ; Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
+		; Copy the disk initialization parameter table (.dipt, DPT).
+		mov bx, 0x1e<<2  ; int 1eh vector (DPT).
+		lds si, [bx]
+		push si
+		mov di, 0x522  ; Windows 95--98--ME also copy to here. https://stanislavs.org/helppc/bios_data_area.html also lists it.
+		mov [es:bx], di  ; Change int 1eh vector (DPT).
+		mov [es:bx+2], es
+		mov cx, 0xb
+		rep movsb  ; Size of the DPT.
+		pop si  ; Will be pushed below.
+		mov byte [es:di-2], 0xf  ; Set floppy head bounce delay == head settle time, in milliseconds, to 0xf: https://stanislavs.org/helppc/int_1e.html ; https://retrocomputing.stackexchange.com/q/31099/3494
+		mov cx, [bp-.header+.sectors_per_track]
+		mov [es:di-7], cl  ; Set sectors_per_track in the DPT.
 
 		; Figure out where FAT and data areas start.
-		xchg dx, ax  ; DX := AX (0); AX := junk.
+		xchg dx, ax  ; DX := AX (0); AX := junk. AX has been set to 0 by fat_boot_sector_common.
 		mov ax, [bp-.header+.reserved_sector_count]
 		add ax, [bp-.header+.hidden_sector_count]
 		adc dx, [bp-.header+.hidden_sector_count+2]
@@ -1119,6 +1187,16 @@ boot_sector_fat16_new:
                 push cx
                 push di  ; dword [bp-.header+.var_clusters_sec_ofs] := CX:DI (final value).
                 mov cx, bx
+
+		push ds  ; Segment of dword [.var_orig_int13_vector].
+		push si  ; Offset of dword [.var_orig_int13_vector].
+		push ds  ; Will be discarded by MS-DOS v7 msload. !! Push 0 for compatibility.
+		push si  ; Will be discarded by MS-DOS v7 msload. !! Push 0x78 for compatibility.
+
+		push es
+		pop ds  ; DS := ES (0).
+		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
+		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
 
 		; Search the root directory for a kernel file.
                 ; Now: DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem; CX: number of root directory entries.
@@ -1222,22 +1300,37 @@ boot_sector_fat16_new:
 		jnz .cont_kernel_cluster
 .jump_to_msload:  ; !! Can we make it shorter? The old FAT16 implementation seems to be about 32 bytes shorter (without its error message).
 		pop ax  ; Discard current cluster number.
-		; Fill registers according to MS-DOS v6 and v7 load protocol.
-		mov dl, [bp-.header+.drive_number]
+		; Fill registers according to MS-DOS v6 load protocol.
+		mov bx, [bp-.header+.var_clusters_sec_ofs]
+		mov ax, [bp-.header+.var_clusters_sec_ofs+2]
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
-		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32. !!)
+		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
+		; True by design: dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors.
+		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/msg.asm#l1407 and https://hg.pushbx.org/ecm/ldebug/file/66e2ad622d18/source/boot.asm#l2577 .
+		; Fill registers according to MS-DOS v6 load protocol.
+		mov dl, [bp-.header+.drive_number]  ; MS-DOS v7 (such as Windows 98 SE) expects the drive number in the BPB (.drive_number_fat1x and .drive_number_fat32) instead.
+		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
+		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-		mov ch, [bp-.header+.media_descriptor]  ; !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
-		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
-		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]
-		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
-		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
-		push ax
-		push bx  ; dword [ss:bp-4] = (== dword [bp-.header+.var_clusters_sec_ofs]) first data sector of first cluster, including hidden sectors.
-		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
-		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
-		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
-		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
+		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
+		; Specify DPT for MS-DOS v7. This includes IBM PC DOS 7.1.
+		; They pop 4 bytes from the stack, and then they pop
+		; segment, then offset of the original DPT offset.
+		; https://stanislavs.org/helppc/int_1e.html
+		;
+		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h
+		; vector (Disk initialization parameter table vector:
+		; https://stanislavs.org/helppc/int_1e.html) in dword
+		; [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword
+		; [sp+4]. Earlier versionf of DOS expect it in DS:SI. They
+		; only use it for restoring it before reboot (int 19h)
+		; during a failed boot. So we just don't set it, and hope
+		; that floppy operation won't be needed after an int 19h
+		; reboot.
+		;
+		; Already filled: 4 words on stack (dword [.var_orig_int13_vector] above).
+		; Specify DPT for MS-DOS v6.
+		lds si, [bp-.header+.var_orig_int13_vector]  ; It expects the old DPT pointer in DS:SI.
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
 		dec cl  ; Consume 1 sector from the cluster.
