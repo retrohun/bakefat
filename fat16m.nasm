@@ -31,6 +31,7 @@
 ; * Better cylinder alignment for comaptibility with Mtools and QEMU.
 ; * Provide caching of last FAT sector.
 ;
+; !! Set .sectors_per_track to 1 in the MBR only, for better Mtools integration (no need for MTOOLS_SKIP_CHECK=1).
 ; !! Patch MS-DOS 4.01 sources for non-cluster-2 io.sys booting, and .fat_count=1: https://fabulous.systems/posts/2024/05/a-minor-update-ms-dos-4-1-is-here/
 ; !! This may be false: MS-DOS/v4.0/src/BIOS/MSLOAD.ASM: MSLOAD can handle maximum FAT area size of 64 KB: it can handle 2 * 64 KiB. !! Double check by moving io.sys to the end. Or just replace it with MS-DOS 5.00 msload after testing.
 ; !! Add fast boot for Windows 95 RTL (https://retrocomputing.stackexchange.com/q/31115) in msdos.sys.
