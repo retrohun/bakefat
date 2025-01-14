@@ -14,7 +14,8 @@
 ;
 ; * !! No floppy disk support (i.e. DPT).
 ; * !! No reboot-on-keypress support.
-; * !! Reads a single sector at a time. !! TODO(pts): Do batches as long as they are contiguous on disk.
+; * !! Reads a single sector at a time. It could do batches of up to 0x40
+;   sectors == 0x8000 bytes, as long as they are contiguous on disk.
 ; * It is not able load and decompress the Windows ME compressed msbio
 ;   payload. (But it is able to load the uncompressed version by the
 ;   unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
@@ -121,15 +122,15 @@ msload:
 
 mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 .signature:	db 'MZ'  ; Magic bytes checked by the boot sector code.
-%if MSLOAD_SECTOR_COUNT==2  ; !! This works only if MSDCM has been removed from io.sys. Fix it by a post-processing: subtracting 2 sectors from .nblocks.
+%if MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by a post-processing: subtracting 2 sectors from .nblocks.
 .lastsize:      dw (end-.signature) & 0x1ff  ; The value 0 and 0x200 are equivalent here. Microsoft Linker 3.05 generates 0, so do we. Number of bytes in the last 0x200-byte block in the .exe file.
 .nblocks:       dw (end-.signature +0x1ff)>> 9  ; Number of 0x200-byte blocks in .exe file (rounded up).
 %else
 		incbin ORIG_IO_SYS, 2, 4
 %endif
 .nreloc:	dw 0  ; No relocations. That's always true, even for MSDCM.
-%if MSLOAD_SECTOR_COUNT==2  ; !! This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
-.hdrsize:	dw (end-.signature)>>4  ; Used by msload to determine how many bytes of msbio to load. !! Modify manually by subtracting 0x40 (2 sectors).
+%if MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
+.hdrsize:	dw (end-.signature)>>4  ; Used by msload to determine how many bytes of msbio to load. When converting an existing io.sys, modify this manually by subtracting 0x40 (2 sectors).
 .minalloc:	dw 0
 .maxalloc:	dw 0
 .ss:		dw 0
@@ -444,17 +445,17 @@ cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and
 		xor dx, dx
 		cmp [bp+var.is_fat12], dl
 		je .cmp_low  ; Jump for FAT16.
-		cmp ax, strict word 0xff0  ; FAT12 maximum number of clusters: 0xff8. !! FAT12 cluster 0 has 0xff0. Why does DOS and Windows msload check for 0xff8 instead?
+		cmp ax, strict word 0xff8  ; FAT12 maximum number of clusters: 0xff8.
 		jmp short .jb_low
 .fat32:		cmp dx, 0x0fff
 		jne .jb_low
 .cmp_low:	cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8. FAT16 maximum number of clusters: 0xfff8.
 .jb_low:	jb .no_eoc
 		; EOC encountered before we could read the desired number of sectors.
-		jmp strict near fatal1
+.jc_fatal1:	jmp strict near fatal1
 .no_eoc:	sub ax, byte 2
 		sbb dx, byte 0
-		; !! Check that cluster number was at least 2. If not, fatal1.
+		jc .jc_fatal1  ; It's an error to follow cluster 0 (free) and 1 (reserved for temporary allocations).
 		; Sector := (cluster-2) * clustersize + data_start.
 		mov cl, [bp+bpb.sectors_per_cluster]
 		push cx  ; Save for CH.
@@ -575,6 +576,8 @@ read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offs
 		mov [bp+var.single_cached_fat_sec_ofs], ax
 		mov [bp+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		jmp strict near read_sector  ; Tail call.
+
+replace_msg:	db 13, 10, 'Replace the disk, and then press any key', 13, 10, 0, 0  ; Same message as in Windows 98 SE.
 
 %if 0  ; For debugging.
 		mov al, [bp+var.chs_or_lba]
