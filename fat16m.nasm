@@ -815,9 +815,11 @@ assert_fofs (partition_1_sec_ofs+fat_reserved_sector_count)<<9
 assert_fofs (partition_1_sec_ofs+fat_reserved_sector_count)<<9
 first_fat:
 %if fat_32
+		; !! Use fat_media_descriptor instead of 0xf8.
 		dd 0xffffff8, 0xfffffff  ; 2 special cluster pointers, no used clusters in FAT16.
 		dd 0xffffff8  ; Indicates empty root directory.
 %else
+		; !! Use fat_media_descriptor instead of 0xf8 of -8.
 		dw -8, -1  ; 2 special cluster pointers, no used clusters in FAT16.
 %endif
 		times (first_fat-$)&0x1ff db 0  ; Align to multiple of sector size (0x200).
@@ -826,9 +828,11 @@ first_fat:
 		times first_fat+(fat_sectors_per_fat<<9)-$ db 0
 second_fat:
 %if fat_32
+		; !! Use fat_media_descriptor instead of 0xf8.
 		dd 0xffffff8, 0xfffffff  ; 2 special cluster pointers, no used clusters in FAT16.
 		dd 0xffffff8  ; Indicates empty root directory.
 %else
+		; !! Use fat_media_descriptor instead of 0xf8 of -8.
 		dw -8, -1  ; 2 special cluster pointers, no used clusters in FAT16.
 %endif
 		times (second_fat-$)&0x1ff db 0  ; Align to multiple of sector size (0x200).
