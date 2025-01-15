@@ -2,6 +2,9 @@
 ; fat16m.nasm: empty FAT16 filesystem with MBR and partition table
 ; by pts@fazekas.hu at Thu Dec 26 01:51:51 CET 2024
 ;
+; Compile with: nasm -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
+; Minimum NASM version required to compile: 0.98.39
+;
 ; Improvements over the MS-DOS 6.22 boot sector code:
 ;
 ; * MBR is also added (containing partition table, boot code and a copy of the FAT16 headers).

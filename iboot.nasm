@@ -2,7 +2,7 @@
 ; iboot.nasm: independent boot code (MBR, FAT16 boot sectors and FAT32 boot sector)
 ; by pts@fazekas.hu at Thu Dec 26 01:51:51 CET 2024
 ;
-; Compile with: nasm -w+orphan-labels -f bin -o iboot.bin iboot.nasm
+; Compile with: nasm -O0 -w+orphan-labels -f bin -o iboot.bin iboot.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
 ; Differences between iboot.nasm (this file, independent) and boot.nasm:
