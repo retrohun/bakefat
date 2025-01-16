@@ -653,7 +653,7 @@ boot_sector_fat32:
 		mov byte [bp-.header+.jmp_far_inst+2], 2  ; MS-DOS v7 load protocol wants `jmp 0x70:0x200', we set the 2 here.
 		and bh, ~2  ; No need for msdos.sys.
 .do_io_sys_or_ibmbio_com:
-		mov si, 0x500+0x14  ; Load protocol: io.sys expects directory entry of io.sys at 0x500.
+		mov si, 0x500+0x1a  ; Load protocol: io.sys expects directory entry of io.sys at 0x500.
 		and bh, ~1
 		jmp short .copy_entry
 .not_io_sys:
@@ -671,11 +671,16 @@ boot_sector_fat32:
 		repe cmpsb
 		jne .not_ibmdos_com
 		and bh, ~2
-		mov si, 0x520+0x14  ; Load protocol: io.sys expects directory entry of msdos.sys at 0x520.
-.copy_entry:	mov cx, [es:di-11+0x1a]  ; Cluster number low word.
-		mov [si+0x1a-0x14], cx  ; Save to [0x500+0x1a] or [0x520+0x1a].
-		mov cx, [es:di-11+0x14]  ; Cluster number high word.
-		mov [si+0x14-0x14], cx  ; Save to [0x500+0x14] or [0x520+0x14].
+		mov si, 0x520+0x1a  ; Load protocol: io.sys expects directory entry of msdos.sys at 0x520.
+.copy_entry:	; MS-DOS <=6.22 and IBM PC DOS 7.1 only use 2 words of the
+		; 0x20-byte FAT directory entries copied to 0x500 (io.sys)
+		; and 0x520 (msdos.sys); the low (+0x1a) and high (+0x14)
+		; words of the file start cluster number. The latter is only
+		; used for FAT32. So we only copy those words here.
+		mov cx, [es:di-11+0x1a]  ; Copy low word of file start cluster number.
+		mov [si], cx  ; Save to [0x500+0x1a] or [0x520+0x1a].
+		mov cx, [es:di-11+0x14]  ; Copy high word of file start cluster number.
+		mov [si+0x14-0x1a], cx  ; Save to [0x500+0x14] or [0x520+0x14].
 		;jmp short .entry_done  ; Fall through.
 .not_ibmdos_com:
 		; Fall through to .entry_done.
@@ -982,7 +987,7 @@ boot_sector_fat16:
 		mov byte [bp-.header+.jmp_far_inst+2], 2  ; MS-DOS v7 load protocol wants `jmp 0x70:0x200', we set the 2 here.
 		and bh, ~2  ; No need for msdos.sys.
 .do_io_sys_or_ibmbio_com:
-		mov di, 0x500-0x100  ; Load protocol: io.sys expects directory entry of io.sys at 0x500.
+		mov si, 0x500+0x1a  ; Load protocol: io.sys expects directory entry of io.sys at 0x500.
 		and bh, ~1
 		jmp short .copy_entry
 .not_io_sys:
@@ -1001,15 +1006,14 @@ boot_sector_fat16:
 		jne .not_msdos_sys
 .do_msdos_sys_or_ibmdos_com:
 		and bh, ~2
-		mov di, 0x520-0x100  ; Load protocol: io.sys expects directory entry of msdos.sys at 0x520.
-.copy_entry:	pop si  ; !! Only copy word [si+0x700+0x1a] (cluster number low) and, for FAT32, word [si+0x700+0x1d] (cluster number high).
-		push si
-		lea si, [si+0x700]
-		mov cl, 0x10  ; CH is already 0.
-		push es
-		mov es, cx
-		rep movsw
-		pop es
+		mov si, 0x520+0x1a  ; Load protocol: io.sys expects directory entry of msdos.sys at 0x520.
+.copy_entry:	; MS-DOS <=6.22 and IBM PC DOS 7.1 only use 2 words of the
+		; 0x20-byte FAT directory entries copied to 0x500 (io.sys)
+		; and 0x520 (msdos.sys); the low (+0x1a) and high (+0x14)
+		; words of the file start cluster number. The latter is only
+		; used for FAT32. So we only copy those words here.
+		mov cx, [es:di-11+0x1a]  ; Copy low word of file start cluster number.
+		mov [si], cx  ; Save to [0x500+0x1a] or [0x520+0x1a].
 		jmp short .entry_done
 .not_msdos_sys:
 		pop di
