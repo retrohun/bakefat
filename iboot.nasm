@@ -755,7 +755,7 @@ boot_sector_fat32:
 		push dx
 		push ax  ; Save for .jump_to_msload.
 		; Read msload (first few sectors) of the kernel (io.sys).
-		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, Windows 95 OSR2 and Windows 98 work with >=3.
+		mov ch, 4  ; Load up to 4 sectors. MS-DOS 7.x (Windows 95, Windows 98) and 8.0 (Windows ME) need >=4, MS-DOS 3.30..6.22 work with >=3.
 .next_kernel_cluster:
 		push dx
 		push ax  ; Save cluster number (DX:AX).
@@ -818,7 +818,7 @@ boot_sector_fat32:
 		pop cx
 		add ax, [bp-.header+.var_fat_sec_ofs]
 		adc dx, [bp-.header+.var_fat_sec_ofs+2]
-		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8'. Only works for FAT32.
+		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8'. Only works for FAT32 because itoverlaps .sectors_per_fat, and that is 0 for FAT32 only.
 		; Now: DX:AX is the sector offset (LBA), BX is the byte offset within the sector.
 		; Is it the last accessed and already buffered FAT sector?
 		cmp ax, [bp-.header+.var_single_cached_fat_sec_ofs]
@@ -1121,7 +1121,7 @@ boot_sector_fat16:
 		; DI will be used by the MS-DOS v7 load protocol later.
 		mov ax, di
 		; Read msload (first few sectors) of the kernel (io.sys).
-		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, MS-DOS 4.01..6.22, Windows 95 and Windows 98 work with >=3.
+		mov ch, 4  ; Load up to 4 sectors. MS-DOS 7.x (Windows 95, Windows 98) and 8.0 (Windows ME) need >=4, MS-DOS 3.30..6.22 work with >=3.
 		; Load kernel (io.sys) starting at 0x70:0 (== 0x700). Will be used by .read_disk.
 .next_kernel_cluster:  ; Now: AX: next cluster number; DX: ruined; BX: ruined; CH: number of remaining sectors to read; CL: ruined.
 		push ax  ; Save cluster number.
@@ -1357,8 +1357,7 @@ assert_at .header+0x200
 ; * 0x500...0x700: Unused.
 ; * 0x700...0xf00: 4 sectors loaded from io.sys.
 ; * 0xf00...0x1000: Unused.
-; * 0x1000...0x1200: Sector read from the FAT12 FAT.
-; * 0x1200...0x7b00: Unused.
+; * 0x1000...0x7b00: Unused.
 ; * 0x7b00...0x7c00: Stack used by this boot sector.
 ; * 0x7c00...0x7e00: This boot sector.
 
@@ -1521,7 +1520,7 @@ boot_sector_fat12:
 		; DI will be used by the MS-DOS v7 load protocol later.
 		mov ax, di
 		; Read msload (first few sectors) of the kernel (io.sys).
-		mov ch, 4  ; Load up to 4 sectors. MS-DOS 8.0 needs >=4, MS-DOS 4.01..6.22, Windows 95 and Windows 98 work with >=3.
+		mov ch, 4  ; Load up to 4 sectors. MS-DOS 7.x (Windows 95, Windows 98) and 8.0 (Windows ME) need >=4, MS-DOS 3.30..6.22 work with >=3.
 		; Load kernel (io.sys) starting at 0x70:0 (== 0x700). Will be used by .read_disk.
 .next_kernel_cluster:  ; Now: AX: next cluster number; BX: ruined; CH: number of remaining sectors to read; CL: ruined.
 		push ax  ; Save cluster number.
@@ -1576,7 +1575,7 @@ boot_sector_fat12:
 		; Now: CH is the low byte of the cluster number (will be used for its low bit, parity) for FAT12, 0 for others.
 		add ax, strict word 000  ; !!! The sys tool should substitute [bp+var.fat_sec_ofs] here.
 		;adc dx, [bp+var.fat_sec_ofs+2]
-		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8' etc.
+		mov es, [bp-.header+.media_descriptor]  ; Tricky way to `mov es, 0xf8' etc. !! It doesn't work for FAT12.
 		call .read_disk_inc
 		push word [es:si]  ; Save low word of next cluster number.
 		cmp si, 0x1ff

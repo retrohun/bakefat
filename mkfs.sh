@@ -227,7 +227,7 @@ mcopy -bsomp -i "$HDI_IMG" tosplit.dat ::E1S  # Copy it so that IO.SYS will have
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98se ::IO.SYS
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.msdos8 ::IO.SYS
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1packedpts ::IO.SYS
-#mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1app ::IO.SYS
+#mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1app ::IO.SYS  # !!! This doesn't boot from floppy. Does IO.SYS.win98cdn7.1i boot from floppy?
 #nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1sms shortmsload.nasm
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1sms ::IO.SYS
 nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1i msloadv7i.nasm
