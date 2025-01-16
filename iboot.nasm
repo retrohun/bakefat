@@ -841,15 +841,15 @@ boot_sector_fat32:
 ; Outputs on EOC: CF=1.
 ; Outputs on non-EOC: CF=0; DX:AX: sector offset (LBA); CL: .sectors_per_cluster value.
 .cluster_to_lba:
+		sub ax, byte 2
+		sbb dx, byte 0
 		cmp dx, 0x0fff
 		jne .1
-		cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8.
+		cmp ax, strict word 0xfff8-2  ; Make it fail for 0, 1 and >=0xffffff8 (FAT32 minimum special cluster number).
 .1:		jb .no_eoc
 		stc
 		ret
-.no_eoc:	sub ax, byte 2
-		sbb dx, byte 0
-		; Sector := (cluster-2) * clustersize + data_start.
+.no_eoc:	; Sector := (cluster-2) * clustersize + data_start.
 		mov cl, [bp-.header+.sectors_per_cluster]
 		push cx  ; Save for CH.
 		jmp short .maybe_shift
@@ -1126,7 +1126,9 @@ boot_sector_fat16:
 .next_kernel_cluster:  ; Now: AX: next cluster number; DX: ruined; BX: ruined; CH: number of remaining sectors to read; CL: ruined.
 		push ax  ; Save cluster number.
 .cluster_to_lba:  ; Converts cluster number to the sector offset (LBA).
-		cmp ax, strict word 0xfff8
+		dec ax
+		dec ax
+		cmp ax, strict word 0xfff8-2  ; Make it fail for 0, 1 and >=0xfff8 (FAT16 minimum special cluster number).
 		jc .no_eoc
 		; EOC encountered before we could read 4 sectors.
 .fatal1:	mov si, -.org+.errmsg_sys
@@ -1143,8 +1145,7 @@ boot_sector_fat16:
 .hang:		hlt
 		jmp .hang
 		; Not reached.
-.no_eoc:	dec ax
-		dec ax
+.no_eoc:
 		; Sector := (cluster-2) * clustersize + data_start.
 		mov cl, [bp-.header+.sectors_per_cluster]
 		push cx  ; Save for CH.
@@ -1294,7 +1295,6 @@ boot_sector_fat16:
 		times 0x1fe-($-.header) db '-'  ; Padding.
 .boot_signature: dw BOOT_SIGNATURE
 assert_at .header+0x200
-
 
 ; --- MS-PC-DOS-v4-v5-v6-v7 universal, independent FAT12 boot sector.
 ;
@@ -1525,14 +1525,14 @@ boot_sector_fat12:
 .next_kernel_cluster:  ; Now: AX: next cluster number; BX: ruined; CH: number of remaining sectors to read; CL: ruined.
 		push ax  ; Save cluster number.
 .cluster_to_lba:  ; Converts cluster number to the sector offset (LBA).
-		cmp ax, strict word 0xff8  ; FAT12 maximum normal sector number.
+		dec ax
+		dec ax
+		cmp ax, strict word 0xff8-2  ; Make it fail for 0, 1 and >=0xff8 (FAT12 minimum special cluster number).
 		;jc .no_eoc
 		; EOC encountered before we could read 4 sectors.
 		mov si, -.org+.errmsg_sys  ; .fatal1.
 		jnc .fatal
-.no_eoc:	dec ax
-		dec ax
-		; Sector := (cluster-2) * clustersize + data_start.
+.no_eoc:	; Sector := (cluster-2) * clustersize + data_start.
 		mov cl, [bp-.header+.sectors_per_cluster]
 		push cx  ; Save for CH.
 		mov ch, 0
