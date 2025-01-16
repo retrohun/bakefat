@@ -185,10 +185,10 @@ mattrib -i hdg.img +s ::IO.SYS
 mcopy -bsomp -i hdg.img hi.dat ::E2
 mcopy -bsomp -i hdg.img hi.dat ::E3
 mcopy -bsomp -i hdg.img hi.dat ::E4
-mcopy -bsomp -i hdg.img MSDOS.SYS.msdos5 ::MSDOS.SYS
+mcopy -bsomp -i hdg.img MSDOS.SYS.msdos500 ::MSDOS.SYS
 mattrib -i hdg.img +s ::MSDOS.SYS
 mcopy -bsomp -i hdg.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
-mcopy -bsomp -i hdg.img COMMAND.COM.msdos5 ::COMMAND.COM
+mcopy -bsomp -i hdg.img COMMAND.COM.msdos500 ::COMMAND.COM
 
 nasm-0.98.39 -DFAT_COUNT=1 -DFAT_SECTORS_PER_CLUSTER=2 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hdh.img
