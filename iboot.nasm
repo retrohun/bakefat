@@ -798,7 +798,7 @@ boot_sector_fat32:
 		pop di
 		pop si  ; SI:DI == first cluster of load file in FAT32. This is used by MS-DOS v7 (e.g. Windows 95 OSR2), but IBM PC DOS 7.01 uses word [0x514] (high word) and word [0x51a] (low word) instead. (DI == first cluster of load file if FAT12 or FAT16.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
+		mov ch, [bp-.header+.media_descriptor]  ; https://retrocomputing.stackexchange.com/q/31129 . IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD (Is it true? Does it accept 0xf0 as well? Or anything?). MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
 		pop bx  ; mov bx, [bp-.header+.var_clusters_sec_ofs]
 		pop ax  ; mov ax, [bp-.header+.var_clusters_sec_ofs+2]  ; IBMP PC DOS 7.1 needs AX:BX to have the value of .var_clusters_sec_ofs. MS-DOS v7 gets it from dword [ss:bp-4] instead.
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
@@ -1205,7 +1205,7 @@ boot_sector_fat16:
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
 		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
+		mov ch, [bp-.header+.media_descriptor]  ; https://retrocomputing.stackexchange.com/q/31129 . IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD (Is it true? Does it accept 0xf0 as well? Or anything?). MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
 		; Pass orig DPT (int 13h vector value) to MS-DOS v6 and IBM
 		; PC DOS 7.0 in DS:SI. MS-DOS v7 and IBM PC DOS 7.1 expect
 		; it on the stack instead (we've already pushed it, as dword
@@ -1632,7 +1632,7 @@ boot_sector_fat12:
 		; Fill registers according to MS-DOS v7 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos7
 		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
+		mov ch, [bp-.header+.media_descriptor]  ; https://retrocomputing.stackexchange.com/q/31129 . IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD (Is it true? Does it accept 0xf0 as well? Or anything?). MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
 		; Pass orig DPT (int 13h vector value) to MS-DOS v6 and IBM
 		; PC DOS 7.0 in DS:SI. MS-DOS v7 and IBM PC DOS 7.1 expect
 		; it on the stack instead (we've already pushed it, as dword
