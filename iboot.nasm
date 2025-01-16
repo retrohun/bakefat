@@ -642,7 +642,7 @@ boot_sector_fat32:
 		;mov [bp-.header+.drive_number], dl
 
 		; Figure out where FAT and data areas start.
-%if 0  ; Too much code, see precomputed .c
+%if 0  ; Too much code, see precomputed.
 		xchg dx, ax  ; DX := AX; AX := junk.
 		mov ax, [bp-.header+.reserved_sector_count]
 		add ax, [bp-.header+.hidden_sector_count]
@@ -659,6 +659,19 @@ boot_sector_fat32:
 %else
 		push si
 		push di  ; dword [bp-.header+.var_clusters_sec_ofs] := SI:DI.
+%endif
+
+%if 0  ; Too much code, this doesn't fit. Without this subsequent floppy access in MS-DOS v7 may not work. (TODO(pts): Double check, not in an emulator.)
+		mov bx, 0x1e<<2
+		lds si, [bx]  ; int 1eh vector (DPT).
+		push ds  ; Segment of dword [.var_orig_int13_vector].
+		push si  ; Offset of dword [.var_orig_int13_vector].
+		push ss  ; Will be discarded by MS-DOS v7 msload. Push segment 0 for compatibility. In practice, msload in MS-DOS v7 ignores this value.
+		;mov bx, 0x1e<<2  ; No need, already true.
+		push bx  ; Will be discarded by MS-DOS v7 msload. Push offset 0x78 == (0x1e<<2) for compatibility. In practice, msload in MS-DOS v7 ignores this value.
+
+		push es
+		pop ds  ; DS := ES (0).
 %endif
 
 		; Search the root directory for a kernel file.
@@ -795,7 +808,18 @@ boot_sector_fat32:
 		; True by design: SS:BP -> boot sector with (E)BPB, typically at linear 0x7c00.
 		; (It's not modified by this boot sector.) Diskette Parameter Table (DPT) may be relocated, possibly modified. The DPT is pointed to by the interrupt 1eh vector. If dword [ss:sp] = 0000_0078h (far pointer to IVT 1eh entry), then dword [ss:sp+4] -> original DPT
 		; !! Currently not: word [ss:bp+0x1ee] points to a message table. The format of this table is described in lDebug's source files msg.asm and boot.asm, around uses of the msdos7_message_table variable.
-		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h vector (Disk initialization parameter table vector: https://stanislavs.org/helppc/int_1e.html) in dword [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword [sp+4]. Earlier versionf of DOS expect it in DS:SI. They only use it for restoring it before reboot (int 19h) during a failed boot. So we just don't set it, and hope that floppy operation won't be needed after an int 19h reboot.
+		;
+		; Pass orig DPT (int 13h vector value) to MS-DOS v6 and IBM
+		; PC DOS 7.0 in DS:SI. MS-DOS v7 and IBM PC DOS 7.1 expect
+		; it on the stack instead (we've already pushed it, as dword
+		; [.var_orig_int13_vector] above): they pop 4 bytes from the
+		; stack, and then they pop offset (word [SS:SP+4]), then
+		; segment ((word [SS:SP+6])) of the original DPT.
+		; https://stanislavs.org/helppc/int_1e.html
+		;
+		; !! Unfortunately we've omitted the code above to push it
+		; for MS-DOS v7.
+		;lds si, [bp-.header+.var_orig_int13_vector]  ; This would be used only by MS-DOS v6, but that doesn't support FAT32 anyway. Unfortunately SI already contains the high word of the start cluster number of load file.
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
 		dec cl  ; Consume 1 sector from the cluster.
@@ -1033,6 +1057,7 @@ boot_sector_fat16:
                 push cx
                 push di  ; dword [bp-.header+.var_clusters_sec_ofs] := CX:DI (final value).
                 mov cx, bx
+		mov bx, 0x1e<<2  ; int 1eh vector (DPT).
 %else  ; !! Precompute the 000 values below in the `sys' tool.
 		mov ax, 000  ; High word of dword [bp-.header+.var_clusters_sec_ofs]
 		push ax
@@ -1045,8 +1070,9 @@ boot_sector_fat16:
 
 		push ds  ; Segment of dword [.var_orig_int13_vector].
 		push si  ; Offset of dword [.var_orig_int13_vector].
-		push ds  ; Will be discarded by MS-DOS v7 msload. !! Push 0 for compatibility.
-		push si  ; Will be discarded by MS-DOS v7 msload. !! Push 0x78 for compatibility.
+		push ss  ; Will be discarded by MS-DOS v7 msload. Push segment 0 for compatibility. In practice, msload in MS-DOS v7 ignores this value.
+		;mov bx, 0x1e<<2  ; No need, already true.
+		push bx  ; Will be discarded by MS-DOS v7 msload. Push offset 0x78 == (0x1e<<2) for compatibility. In practice, msload in MS-DOS v7 ignores this value.
 
 		push es
 		pop ds  ; DS := ES (0).
@@ -1180,24 +1206,14 @@ boot_sector_fat16:
 		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
 		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
-		; Specify DPT for MS-DOS v7. This includes IBM PC DOS 7.1.
-		; They pop 4 bytes from the stack, and then they pop
-		; segment, then offset of the original DPT offset.
+		; Pass orig DPT (int 13h vector value) to MS-DOS v6 and IBM
+		; PC DOS 7.0 in DS:SI. MS-DOS v7 and IBM PC DOS 7.1 expect
+		; it on the stack instead (we've already pushed it, as dword
+		; [.var_orig_int13_vector] above): they pop 4 bytes from the
+		; stack, and then they pop offset (word [SS:SP+4]), then
+		; segment ((word [SS:SP+6])) of the original DPT.
 		; https://stanislavs.org/helppc/int_1e.html
-		;
-		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h
-		; vector (Disk initialization parameter table vector:
-		; https://stanislavs.org/helppc/int_1e.html) in dword
-		; [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword
-		; [sp+4]. Earlier versionf of DOS expect it in DS:SI. They
-		; only use it for restoring it before reboot (int 19h)
-		; during a failed boot. So we just don't set it, and hope
-		; that floppy operation won't be needed after an int 19h
-		; reboot.
-		;
-		; Already filled: 4 words on stack (dword [.var_orig_int13_vector] above).
-		; Specify DPT for MS-DOS v6.
-		lds si, [bp-.header+.var_orig_int13_vector]  ; It expects the old DPT pointer in DS:SI.
+		lds si, [bp-.header+.var_orig_int13_vector]
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 .cont_kernel_cluster:
 		dec cl  ; Consume 1 sector from the cluster.
@@ -1418,6 +1434,7 @@ boot_sector_fat12:
                 push cx
                 push di  ; dword [bp-.header+.var_clusters_sec_ofs] := CX:DI (final value).
                 mov cx, bx
+		mov bx, 0x1e<<2  ; int 1eh vector (DPT).
 %else  ; !!! Precompute the 000 values below in the `sys' tool.
 		;xor ax, ax ; Already 0. mov ax, 000  ; High word of dword [bp-.header+.var_clusters_sec_ofs]
 		push ax  ; High word of dword [bp-.header+.var_clusters_sec_ofs] to 0.
@@ -1431,8 +1448,9 @@ boot_sector_fat12:
 
 		push ds  ; Segment of dword [.var_orig_int13_vector].
 		push si  ; Offset of dword [.var_orig_int13_vector].
-		push ds  ; Will be discarded by MS-DOS v7 msload. !! Push 0 for compatibility.
-		push si  ; Will be discarded by MS-DOS v7 msload. !! Push 0x78 for compatibility.
+		push ss  ; Will be discarded by MS-DOS v7 msload. Push segment 0 for compatibility. In practice, msload in MS-DOS v7 ignores this value.
+		;mov bx, 0x1e<<2  ; No need, already true.
+		push bx  ; Will be discarded by MS-DOS v7 msload. Push offset 0x78 == (0x1e<<2) for compatibility. In practice, msload in MS-DOS v7 ignores this value.
 
 		push es
 		pop ds  ; DS := ES (0).
@@ -1600,7 +1618,7 @@ boot_sector_fat12:
 		; Now: AX: next cluster number.
 		jmp short .next_kernel_cluster  ; !! Move .jump_to_msload down.
 
-.jump_to_msload:  ; !! Can we make it shorter? The old FAT16 implementation seems to be about 32 bytes shorter (without its error message).
+.jump_to_msload:
 		pop ax  ; Discard current cluster number.
 		; Fill registers according to MS-DOS v6 load protocol.
 		mov bx, [bp-.header+.var_clusters_sec_ofs]
@@ -1615,24 +1633,14 @@ boot_sector_fat12:
 		; Already filled: DI == first cluster of load file if FAT12 or FAT16. (SI:DI == first cluster of load file if FAT32.)
 		; Fill registers according to MS-DOS v6 load protocol: https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
 		mov ch, [bp-.header+.media_descriptor]  ; !! IBM PC DOS 7.1 boot sector seems to set it, propagating it to the DRVFAT variable, propagating it to DiskRD. Does it actually use it? !! MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte. !! not true: MS-DOS 6.22 fails to boot if this is not 0xf8 for HDD. MS-DOS 4.01 io.sys GOTHRD (in bios/msinit.asm) uses it, as media byte.
-		; Specify DPT for MS-DOS v7. This includes IBM PC DOS 7.1.
-		; They pop 4 bytes from the stack, and then they pop
-		; segment, then offset of the original DPT offset.
+		; Pass orig DPT (int 13h vector value) to MS-DOS v6 and IBM
+		; PC DOS 7.0 in DS:SI. MS-DOS v7 and IBM PC DOS 7.1 expect
+		; it on the stack instead (we've already pushed it, as dword
+		; [.var_orig_int13_vector] above): they pop 4 bytes from the
+		; stack, and then they pop offset (word [SS:SP+4]), then
+		; segment ((word [SS:SP+6])) of the original DPT.
 		; https://stanislavs.org/helppc/int_1e.html
-		;
-		; MS-DOS v7 (i.e. Windows 95) expects the original int 13h
-		; vector (Disk initialization parameter table vector:
-		; https://stanislavs.org/helppc/int_1e.html) in dword
-		; [bp+0x5e], IBM PC DOS 7.1 expects it on the stack: dword
-		; [sp+4]. Earlier versionf of DOS expect it in DS:SI. They
-		; only use it for restoring it before reboot (int 19h)
-		; during a failed boot. So we just don't set it, and hope
-		; that floppy operation won't be needed after an int 19h
-		; reboot.
-		;
-		; Already filled: 4 words on stack (dword [.var_orig_int13_vector] above).
-		; Specify DPT for MS-DOS v6.
-		lds si, [bp-.header+.var_orig_int13_vector]  ; It expects the old DPT pointer in DS:SI.
+		lds si, [bp-.header+.var_orig_int13_vector]
 .jmp_far_inst:	jmp 0x70:0  ; Jump to boot code (msload) loaded from io.sys. Self-modifying code: the offset 0 has been changed to 0x200 for MS-DOS v7.
 
 ; Reads a sector from disk, using CHS.
