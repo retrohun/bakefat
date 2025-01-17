@@ -138,7 +138,7 @@ mcopy -bsomp -i hdd.img IBMDOS.COM.pcdos71 ::IBMDOS.COM  # Must be first for MS-
 mattrib -i hdd.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
 mcopy -bsomp -i hdd.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
 mcopy -bsomp -i hdd.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
-mcopy -bsomp -i hdd.img COMMANDI.COM ::COMMAND.COM
+mcopy -bsomp -i hdd.img COMMAND.COM.pcdos71 ::COMMAND.COM
 
 nasm-0.98.39 -DFAT_COUNT=2 -DFAT_SECTORS_PER_CLUSTER=1 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 rm -f hde.img
@@ -281,7 +281,7 @@ if true; then
   mcopy -bsomp -i hdk.img hi.dat ::E4
   mcopy -bsomp -i hdk.img IBMDOS.COM.pcdos71 ::IBMDOS.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
   mattrib -i hdk.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
-  mcopy -bsomp -i hdk.img COMMANDI.COM ::COMMAND.COM
+  mcopy -bsomp -i hdk.img COMMAND.COM.pcdos71 ::COMMAND.COM
   mcopy -bsomp -i hdk.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
   mcopy -bsomp -i hdk.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
 else  # Use the IBM PC DOS 7.1 FAT32 boot sector.
@@ -300,7 +300,7 @@ else  # Use the IBM PC DOS 7.1 FAT32 boot sector.
   #mcopy -bsomp -i hdk.img empty.dat ::E4
   mcopy -bsomp -i hdk.img IBMDOS.COM.pcdos71 ::IBMDOS.COM  # Must be first for MS-DOS 6.22 boot sector to boot.
   mattrib -i hdk.img +s ::IBMDOS.COM  # !! It's ok if not contiguous for booting MS-DOS 6.22, but may be needed for earlier versions of DOS.
-  mcopy -bsomp -i hdk.img COMMANDI.COM ::COMMAND.COM
+  mcopy -bsomp -i hdk.img COMMAND.COM.pcdos71 ::COMMAND.COM
   mcopy -bsomp -i hdk.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot: https://retrocomputing.stackexchange.com/a/31116/3494
   mcopy -bsomp -i hdk.img autoexec.bat ::AUTOEXEC.BAT  # Prevent the `date' and `time' prompt.
   dd bs=1 if=pcdos71-fat32-bs.bin count=422 of=hdk.img skip=90 seek=32346 conv=notrunc  # Use the IBM PC DOS 7.1 FAT32 boot sector.
