@@ -80,6 +80,71 @@ bakefat features and limitations:
   a FAT filesystem with only 1 FAT, accepting a FAT filesystem with more
   than 1 reserved sectors and loading a fragmented *io.sys*.
 
+Here is how to use the bakefat preview for floppy disk images:
+
+1. This is already implemented in the file [fat12b.nasm](fat12b.nasm). The
+   shell script [fat12b.sh](fat12b.sh) provides some example commands on
+   building bootable floppy disk images.
+
+2. Clone the Git repository, open a terminal window, and cd to the clone
+   *bakefat* directory.
+
+3. Install NASM and Mtools. (This is easy on a Linux, macOS or a Unix-like
+   system. Use your package manager.)
+
+4. Decide how many kilobytes large your floppy disk image should be. The
+   supported sizes are: 160K, 180K, 320K, 360K, 720K, 1200K, 1440K and
+   2880K. If in doubt, choose 1200K, that's large and compatible with all
+   supported DOS versions.
+
+5. Run this command (specifying the chosen size after `-DP_`) to create the
+   floppy disk image file *myfd.img*:
+
+   ```
+   nasm -O0 -w+orphan-labels -f bin -DP_1200K -o myfd.img fat12b.nasm
+   ```
+
+   This command has created a bootable disk image with a FAT12 filesystem,
+   but the system files (1 or 2 kernel files and *command.com*) are missing.
+
+6. Obtain a supported version of MS-DOS (3.30--6.22), IBM PC DOS (3.30--7.1)
+   or Windows 95--98--ME boot floppy. Software archives typically have the
+   boot floppy image as *disk01.img* (or *boot.img*) as part of the download.
+
+7. Copy the kernel files and *command.com* to *myfd.img*.
+
+   For MS-DOS --6.22:
+
+   ```
+   mtools -c mcopy -bsomp -i disk01.img ::IO.SYS ::MSDOS.SYS ::COMMAND.COM ./
+   mtools -c mcopy -bsomp -i IO.SYS MSDOS.SYS COMMAND.COM ::
+   mtools -c mattrib -i myfd.img +s ::IO.SYS ::MSDOS.SYS
+   ```
+
+   For Windows 95--98--ME (MS-DOS 7.x or 8.0):
+
+   ```
+   mtools -c mcopy -bsomp -i disk01.img ::IO.SYS ::COMMAND.COM ./
+   mtools -c mcopy -bsomp -i IO.SYS COMMAND.COM ::
+   mtools -c mattrib -i myfd.img +s ::IO.SYS
+   ```
+
+   For IBM PC DOS:
+
+   ```
+   mtools -c mcopy -bsomp -i disk01.img ::IBMBIO.COM ::IBMDOS.COM ::COMMAND.COM ./
+   mtools -c mcopy -bsomp -i IO.SYS IBMDOS.COM COMMAND.COM ::
+   mtools -c mattrib -i myfd.img +s ::IBMBIO.COM ::IBMDOS.COM
+   ```
+
+5. Start the virtual machine in the emulator.
+
+   To do so with QEMU, use this command:
+
+   ```
+   qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -drive file=myfd.img,format=raw,if=floppy -boot a
+   ```
+
 Here is how to use bakefat:
 
 1. Download the program file bakefat and (on Linux and macOS) make it
@@ -125,12 +190,12 @@ Here is how to use bakefat:
 
    For QEMU, see the instructions in the next step.
 
-5. Start the virtual machine.
+5. Start the virtual machine in the emulator.
 
-   To do so in QEMU, use this command:
+   To do so with QEMU, use this command:
 
    ```
-   qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -hda myhd.img -boot c
+   qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -drive file=myhd.img,format=raw -boot c
 `  ```
 
 6. Wait for bakefat to load in the virtual machine. Upon first boot, in the
