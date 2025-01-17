@@ -1,8 +1,8 @@
 ;
-; msloadv7i: an improved implementation of MS-DOS v7 msload
+; msloadv7i.nasm: an improved implementation of MS-DOS v7 msload
 ; by pts@fazekas.hu at Mon Jan 13 10:52:15 CET 2025
 ;
-; Compile with: nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1sms shortmsload.nasm
+; Compile with: nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1i msloadv7i.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
 ; Improvements over MS-DOS 7.1 (particularly Windows 98 SE) msload:
