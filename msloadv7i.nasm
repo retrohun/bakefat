@@ -30,7 +30,7 @@
 ; * 0x500...0x700: Unused.
 ; * 0x700...0x40700: Load location of the msbio part of io.sys. We will load it, and then do the far jump `jmp 0x70:0'. Maximum io.sys file size: 256 KiB.
 ; * 0x40700..0x40800: Our stack after cont_relocated. Memory address of its end: SS:0x800 == SS:BP. (See .setup_reloc_segment for alternative address values.)
-; * 0x40800..0x40c00: Our relocated msload code and data: CS:0x800 == DS:0x800 == ES:0x800 == SS:0x800 == SS:BP. Use `[bp+var....]` for access, and `-rorg+var....` to get the oaddress. (See .setup_reloc_segment for alternative address values.)
+; * 0x40800..0x40c00: Our relocated msload code and data: CS:0x800 == DS:0x800 == ES:0x800 == SS:0x800 == SS:BP. Use `[bp-$$+var....]` for access, and `-rorg+var....` to get the oaddress. (See .setup_reloc_segment for alternative address values.) The `-$$` is a displacement size optimization (from 2 to 1 byte).
 ; * 0x40c00..0x40e00: Cached sector read from the FAT. (See .setup_reloc_segment for alternative address values.)
 ;
 
@@ -77,7 +77,7 @@ bpb.sectors_per_fat_fat32: equ fat_header+0x24  ; dd.
 ;bpb.mirroring_flags_fat32: equ fat_header+0x28  ; dw 0  ; As created by mkfs.vfat.
 ;bpb.version_fat32: equ fat_header+0x2a  ; dw 0.
 ;bpb.rootdir_start_cluster_fat32: equ fat_header+0x2c  ; dd 2.
-bpb.copy_end: equ fat_header+0x30  ; It will be rounded up to even, i.e. +0x24, for the actual copy. The msbio payload uses everything before here, and also byte [bp+.drive_number_fat32].
+bpb.copy_end: equ fat_header+0x30  ; It will be rounded up to even, i.e. +0x24, for the actual copy. The msbio payload uses everything before here, and also byte [bp-$$+.drive_number_fat32].
 ;bpb.fsinfo_sec_ofs_fat32: equ fat_header+0x30  ; dw.
 ;bpb.first_boot_sector_copy_sec_ofs_fat32: equ fat_header+0x32  ; dw.
 ;bpb.reserved_fat32: equ fat_header+0x34  ; db*12.
@@ -93,7 +93,7 @@ bpb.drive_number_fat1x: equ fat_header+0x24  ; db. 0x80 for HDD.
 
 var:
 ; Initialized data goes to initialized_data below.
-; Don't use var+0, [bp] is 1 byte longer than [bp+1].
+; Don't use var+0, [bp] is 1 byte longer than [bp-$$+1].
 .chs_or_lba: equ var+2  ; db. 0x90 for CHS. Another possible value is 0x0e for LBA (and 0x0c is also for LBA). Expected by msbio at this offset. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA. We ignore it.
 .unused_byte equ var+3 ; db.
 .msbio_remaining_para_count: equ var+4  ; dw. Number of paragraphs (16-byte blocks) of msbio payload to load. Will be decremented for remaining.
@@ -152,16 +152,16 @@ load_code:
 		pop ds
 		push si
 		xor si, si
-		mov cx, [si+mz_header.hdrsize]  ; Will be overwritten (partially) by bpb.fat_header.
+		mov cx, [si-$$+mz_header.hdrsize]  ; Will be overwritten (partially) by bpb.fat_header.
 		sub cx, byte 0x20  ; It doesn't sound necessary, but msbio in Windows 98 SE and Windows ME do the same.
-		pop word [si+var.our_cluster_ofs+2]  ; High word. It is arbitrary, and it will be ignored for FAT12 and FAT16.
+		pop word [si-$$+var.our_cluster_ofs+2]  ; High word. It is arbitrary, and it will be ignored for FAT12 and FAT16.
 		push cx
 		add cx, byte 0x20+0x1f  ; 0x1f is for rounding up the number of sectors.
 		; Overlap between load_code and all data above (fat_header, bpb, var) ends by here.
-		mov [si+var.msbio_remaining_para_count], cx  ; Copy it first, because the from-BPB below copy overwrites its original location (mz_header.hdrsize).
+		mov [si-$$+var.msbio_remaining_para_count], cx  ; Copy it first, because the from-BPB below copy overwrites its original location (mz_header.hdrsize).
 		; The boot sector has also set `dword [bp-4]' to the sector offset of the first data sector (var.clusters_sec_ofs). We ignore it, because we'll compute our own.
 		; The boot sector has also set SI:DI to the cluster index of io.sys (i.e.e the file to be loaded).
-		mov [si+var.our_cluster_ofs], di
+		mov [si-$$+var.our_cluster_ofs], di
 		mov cx, [bp-4]  ; Low word of first data sector.
 		; Copy our msload (0x400 bytes) from its current location (CS:0) to its final location (ES:0x800).
 		mov di, -rorg+msload
@@ -179,12 +179,15 @@ load_code:
 		ss rep movsw  ; Copy CX<<1 bytes from SS:SI to ES:DI.
 		mov ds, ax
 		pop di  ; DI := 0x800.
-		mov bx, [di+bpb.sector_count_zero]
+		mov bx, [di-$$+bpb.sector_count_zero]
 		test bx, bx
 		jz .done_sector_count
-		mov [di+bpb.sector_count], bx
-		mov [di+bpb.sector_count+2], cx  ; 0.
+		mov [di-$$+bpb.sector_count], bx
+		mov [di-$$+bpb.sector_count+2], cx  ; 0.
 .done_sector_count:
+		pop word [di-$$+var.msbio_passed_para_count]
+		pop bx  ; Discard value from boot sector boot code.
+		pop bx  ; Discard value from boot sector boot code.
 
 		jmp short initialized_data.end
 		align 2, nop
@@ -198,40 +201,37 @@ var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
 var.skip_sector_count: db MSLOAD_SECTOR_COUNT
 var.fat_cache_segment: dw 0x40  ; Right after the relocated copy of our code. To get its value, base segment value (AX) will be added to it.
 %if $-msload>=0x80
-  %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp+0x7f] is single-byte, [bp+0x80] is two bytes.
+  %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
   dw 1/0
 %endif
 initialized_data.end:
 
-		pop word [di+var.msbio_passed_para_count]
-		pop bx  ; Discard value from boot sector boot code.
-		pop bx  ; Discard value from boot sector boot code.
 %if $-msload<var.end-var
   %error 'OVERLAP_BETWEEN_VAR_AND_LOAD_CODE_2'
   dw 1/0
 %endif
-		pop word [di+var.orig_dipt_offset]   ; Use value from boot sector boot code.
-		pop word [di+var.orig_dipt_segment]  ; Use value from boot sector boot code.
+		pop word [di-$$+var.orig_dipt_offset]   ; Use value from boot sector boot code.
+		pop word [di-$$+var.orig_dipt_segment]  ; Use value from boot sector boot code.
 		; No need to move around the 0xb bytes of the DPT (current
 		; int 13h vector), we can assume that the boot sector has
 		; set it up to a location which survives the boot process.
 		; The Windows 95--98--ME boot sectos copy the 0xb bytes to
 		; 0:0x522, which is such an address.
-		add [di+var.fat_cache_segment], ax
-		mov dl, [bp+var.drive_number]  ; Windows 98 SE boot sector doesn't pass DL to msload. This is only correct for FAT32. We get it later for non-FAT32.
+		add [di-$$+var.fat_cache_segment], ax
+		mov dl, [bp-$$+var.drive_number]  ; Windows 98 SE boot sector doesn't pass DL to msload. This is only correct for FAT32. We get it later for non-FAT32.
 		mov bp, di  ; BP := 0x800.
 		cli
 		mov ss, ax
 		mov sp, bp
 		sti
-		mov ax, [bp+bpb.sectors_per_fat_fat1x]
+		mov ax, [bp-$$+bpb.sectors_per_fat_fat1x]
 		cmp ax, cx  ; AX == 0 for FAT32.
 		je .done_sectors_per_fat  ; Jump if FAT32.
-		mov dl, [bp+bpb.drive_number_fat1x]  ; Do this early, because [bp+var.sectors_per_fat overlaps [bp+bpb.drive_number_fat1x] .
-		mov [bp+var.sectors_per_fat], ax
-		mov [bp+var.sectors_per_fat+2], cx  ; 0.
+		mov dl, [bp-$$+bpb.drive_number_fat1x]  ; Do this early, because [bp-$$+var.sectors_per_fat overlaps [bp-$$+bpb.drive_number_fat1x] .
+		mov [bp-$$+var.sectors_per_fat], ax
+		mov [bp-$$+var.sectors_per_fat+2], cx  ; 0.
 .done_sectors_per_fat:
-		mov [bp+var.drive_number], dl  ; msbio needs it here, no matter the filesystem.
+		mov [bp-$$+var.drive_number], dl  ; msbio needs it here, no matter the filesystem.
 		push ds
 		mov ax, -rorg+cont_relocated
 		push ax
@@ -263,7 +263,7 @@ read_sector:
 		push cx  ; .dap_size := 0x10.
 		mov si, sp
 		mov ah, 0x42
-.do_read:	mov dl, [bp+var.drive_number]
+.do_read:	mov dl, [bp-$$+var.drive_number]
 		int 0x13  ; BIOS syscall to read sectors.
 		mov si, -rorg+errmsg_disk
 		jc fatal
@@ -280,12 +280,12 @@ read_sector:
 		xchg ax, cx
 		xchg ax, dx
 		xor dx, dx
-		div word [bp+bpb.sectors_per_track]  ; We assume that .sectors_per_track is between 1 and 63.
+		div word [bp-$$+bpb.sectors_per_track]  ; We assume that .sectors_per_track is between 1 and 63.
 		xchg ax, cx
-		div word [bp+bpb.sectors_per_track]
+		div word [bp-$$+bpb.sectors_per_track]
 		inc dx  ; Like `inc dl`, but 1 byte shorter. Sector numbers start with 1.
 		xchg cx, dx  ; CX := sec value.
-		div word [bp+bpb.head_count]  ; We assume that .head_count is between 1 and 255.
+		div word [bp-$$+bpb.head_count]  ; We assume that .head_count is between 1 and 255.
 		; Now AX is the cyl value (BIOS allows between 0 and 1023),
 		; DX is the head value (between 0 and 254), thus the DL is
 		; also the head value, CX is the sec value (BIOS allows
@@ -338,7 +338,7 @@ cont_relocated:	; Now: AX==CS==DS==ES==SS: segment of the relocated msload; BP==
 		; bpb.head_count (from BPB, not from BIOS yet),
 		; bpb.hidden_sector_count, bpb.sector_count.
 
-check_ebios:	mov byte [bp+var.chs_or_lba], CHS_OR_LBA.CHS
+check_ebios:	mov byte [bp-$$+var.chs_or_lba], CHS_OR_LBA.CHS
 		mov ah, 0x41  ; Check extensions (EBIOS). DL already contains the drive number.
 		mov bx, 0x55aa
 		int 0x13  ; BIOS syscall.
@@ -347,8 +347,8 @@ check_ebios:	mov byte [bp+var.chs_or_lba], CHS_OR_LBA.CHS
 		jne .done_ebios	 ; No EBIOS.
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
-		mov byte [bp+var.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msbio to use LBA.
-		mov byte [bp+read_sector.js+1], read_sector.lba-(read_sector.js+2)  ; Self-modifying code: change the `jmp short .chs' at `read_sector.js' to `jmp short .lba'.
+		mov byte [bp-$$+var.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msbio to use LBA.
+		mov byte [bp-$$+read_sector.js+1], read_sector.lba-(read_sector.js+2)  ; Self-modifying code: change the `jmp short .chs' at `read_sector.js' to `jmp short .lba'.
 .done_ebios:
 
 get_chs_sizes:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
@@ -358,59 +358,59 @@ get_chs_sizes:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be
 		int 0x13  ; BIOS syscall.
 		jc fatal1
 		and cx, byte 0x3f
-		mov [bp+bpb.sectors_per_track], cx
+		mov [bp-$$+bpb.sectors_per_track], cx
 		mov dl, dh
 		mov dh, 0
 		inc dx
-		mov [bp+bpb.head_count], dx
+		mov [bp-$$+bpb.head_count], dx
 		mov ah, 1  ; Get status of last drive operation. Needed after the AH == 8 call.
-		pop dx  ; mov dl, [bp+var.drive_number]
+		pop dx  ; mov dl, [bp-$$+var.drive_number]
 		int 0x13  ; BIOS syscall.
 
 		; Figure out where FAT and data areas start.
 get_fat_sizes:	xor dx, dx
-		mov ax, [bp+bpb.reserved_sector_count]
-		add ax, [bp+bpb.hidden_sector_count]
-		adc dx, [bp+bpb.hidden_sector_count+2]
-		mov [bp+var.fat_sec_ofs], ax
-		mov [bp+var.fat_sec_ofs+2], dx
+		mov ax, [bp-$$+bpb.reserved_sector_count]
+		add ax, [bp-$$+bpb.hidden_sector_count]
+		adc dx, [bp-$$+bpb.hidden_sector_count+2]
+		mov [bp-$$+var.fat_sec_ofs], ax
+		mov [bp-$$+var.fat_sec_ofs+2], dx
 		xor cx, cx
-		mov cl, [bp+bpb.fat_count]  ; 1 or 2.
-.add_fat:	add ax, [bp+var.sectors_per_fat]
-		adc dx, [bp+var.sectors_per_fat+2]
+		mov cl, [bp-$$+bpb.fat_count]  ; 1 or 2.
+.add_fat:	add ax, [bp-$$+var.sectors_per_fat]
+		adc dx, [bp-$$+var.sectors_per_fat+2]
 		loop .add_fat
                 ; Now: DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem.
-		mov bx, [bp+bpb.rootdir_entry_count]  ; 0 far FAT32.
+		mov bx, [bp-$$+bpb.rootdir_entry_count]  ; 0 far FAT32.
 		add bx, byte 0xf
-		mov cl, 4  ; Assuming word [bp+bpb.bytes_per_sector] == 0x200.
+		mov cl, 4  ; Assuming word [bp-$$+bpb.bytes_per_sector] == 0x200.
 		shr bx, cl
 		xor cx, cx
 		add ax, bx
 		adc dx, cx
-		mov [bp+var.clusters_sec_ofs], ax
-		mov [bp+var.clusters_sec_ofs+2], dx  ; dword [bp+var.clusters_sec_ofs] := DX:AX (final value).
+		mov [bp-$$+var.clusters_sec_ofs], ax
+		mov [bp-$$+var.clusters_sec_ofs+2], dx  ; dword [bp-$$+var.clusters_sec_ofs] := DX:AX (final value).
 
 detect_fat12:  ; Input: CX == 0.
-		;mov byte [bp+var.is_fat12], 0  ; Already initialized to 0.
-		cmp [bp+bpb.sectors_per_fat_fat1x], cx  ; Assumes CX == 0.
+		;mov byte [bp-$$+var.is_fat12], 0  ; Already initialized to 0.
+		cmp [bp-$$+bpb.sectors_per_fat_fat1x], cx  ; Assumes CX == 0.
 		je .done  ; If FAT32, then already done.
-		mov dx, [bp+bpb.sector_count+2]
-		mov ax, [bp+bpb.sector_count]
-		sub ax, [bp+bpb.reserved_sector_count]
+		mov dx, [bp-$$+bpb.sector_count+2]
+		mov ax, [bp-$$+bpb.sector_count]
+		sub ax, [bp-$$+bpb.reserved_sector_count]
 		sbb dx, cx  ; Assumes CX == 0.
-		mov bx, [bp+var.sectors_per_fat]
-		mov cl, [bp+bpb.fat_count]  ; 1 or 2.
+		mov bx, [bp-$$+var.sectors_per_fat]
+		mov cl, [bp-$$+bpb.fat_count]  ; 1 or 2.
 		dec cx
 		shl bx, cl
 		sub ax, bx
 		sbb dx, byte 0
-		mov bx, [bp+bpb.rootdir_entry_count]
+		mov bx, [bp-$$+bpb.rootdir_entry_count]
 		add bx, byte 0xf
 		mov cl, 4  ; 1<<4 directory entries per sector (of size 0x200).
 		shr bx, cl
 		sub ax, bx
 		sbb dx, byte 0
-		mov cl, [bp+bpb.sectors_per_cluster]
+		mov cl, [bp-$$+bpb.sectors_per_cluster]
 		push ax
 		xchg ax, dx  ; AX : = DX; DX := junk.
 		xor dx, dx
@@ -420,14 +420,36 @@ detect_fat12:  ; Input: CX == 0.
 		; Now: AX: number of clusters.
 		cmp ax, 4096-10  ; Same cluster number check as in MS-DOS 6.22 and MS-DOS 7.x.
 		jnc .done
-		inc byte [bp+var.is_fat12]
+		inc byte [bp-$$+var.is_fat12]
 .done:
 
-		mov es, [bp+jump_to_msbio.jmp_far_inst+3]
-		jmp short read_msbio
+read_msbio:
+		mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]
+		mov ax, [bp-$$+var.our_cluster_ofs]
+		mov dx, [bp-$$+var.our_cluster_ofs+2]
+next_kernel_cluster:
+		push dx
+		push ax  ; Save cluster number (DX:AX).
+
+cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and FAT16) to the sector offset (LBA).
+		;call print_star  ; For debugging.
+		cmp word [bp-$$+bpb.sectors_per_fat_fat1x], byte 0
+		je .fat32
+		;call print_dot  ; For debugging.
+		xor dx, dx
+		cmp [bp-$$+var.is_fat12], dl
+		je .cmp_low  ; Jump for FAT16.
+		cmp ax, strict word 0xff8  ; FAT12 maximum number of clusters: 0xff8.
+		jmp short .jb_low
+.fat32:		cmp dx, 0x0fff
+		jne .jb_low
+.cmp_low:	cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8. FAT16 maximum number of clusters: 0xfff8.
+.jb_low:	jb no_eoc
+		; EOC encountered before we could read the desired number of sectors.
+.jmp_fatal1:	jmp strict near fatal1
 
 errmsg_dos7:	db 'DOS7 load error', 0
-errmsg_disk:	db 'Disk error', 0	
+errmsg_disk:	db 'Disk error', 0
 
 		times 0x200-($-$$) db '-'
 
@@ -436,34 +458,12 @@ assert_fofs 0x200
 entry:		db 'BJ'  ; Magic bytes: `inc dx ++ dec dx'. The Windows 98 SE boot sector code checks for this: cmp word [bx+0x200], 'BJ'
 		jmp strict near load_code
 
-read_msbio:  ; Execution continues here after `jmp near read_msbio', after `load_code'.
-		mov ax, [bp+var.our_cluster_ofs]
-		mov dx, [bp+var.our_cluster_ofs+2]
-next_kernel_cluster:
-		push dx
-		push ax  ; Save cluster number (DX:AX).
-
-cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and FAT16) to the sector offset (LBA).
-		;call print_star  ; For debugging.
-		cmp word [bp+bpb.sectors_per_fat_fat1x], byte 0
-		je .fat32
-		;call print_dot  ; For debugging.
-		xor dx, dx
-		cmp [bp+var.is_fat12], dl
-		je .cmp_low  ; Jump for FAT16.
-		cmp ax, strict word 0xff8  ; FAT12 maximum number of clusters: 0xff8.
-		jmp short .jb_low
-.fat32:		cmp dx, 0x0fff
-		jne .jb_low
-.cmp_low:	cmp ax, strict word 0xfff8  ; FAT32 maximum number of clusters: 0x0ffffff8. FAT16 maximum number of clusters: 0xfff8.
-.jb_low:	jb .no_eoc
-		; EOC encountered before we could read the desired number of sectors.
-.jc_fatal1:	jmp strict near fatal1
-.no_eoc:	sub ax, byte 2
+; Execution continues here after `jmp near read_msbio', after `load_code'.
+no_eoc:		sub ax, byte 2
 		sbb dx, byte 0
-		jc .jc_fatal1  ; It's an error to follow cluster 0 (free) and 1 (reserved for temporary allocations).
+		jc cluster_to_lba.jmp_fatal1  ; It's an error to follow cluster 0 (free) and 1 (reserved for temporary allocations).
 		; Sector := (cluster-2) * clustersize + data_start.
-		mov cl, [bp+bpb.sectors_per_cluster]
+		mov cl, [bp-$$+bpb.sectors_per_cluster]
 		push cx  ; Save for CH.
 		jmp short .maybe_shift
 .next_shift:	shl ax, 1
@@ -471,13 +471,13 @@ cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and
 .maybe_shift:	shr cl, 1
 		jnz .next_shift
 		pop cx  ; Restore for CH.
-		add ax, [bp+var.clusters_sec_ofs]
-		adc dx, [bp+var.clusters_sec_ofs+2]
+		add ax, [bp-$$+var.clusters_sec_ofs]
+		adc dx, [bp-$$+var.clusters_sec_ofs+2]
 
 read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
-		sub byte [bp+var.skip_sector_count], 1
+		sub byte [bp-$$+var.skip_sector_count], 1
 		jnc .after_sector
-		inc byte [bp+var.skip_sector_count]  ; Change it back from -1 to 0.
+		inc byte [bp-$$+var.skip_sector_count]  ; Change it back from -1 to 0.
 		;call print_star  ; For debugging.
 		call read_sector  ; TODO(pts): Read multiple sectors at once, for faster speed, especially on floppies.
 		mov bx, es
@@ -485,7 +485,7 @@ read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (L
 		mov es, bx
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
-		sub word [bp+var.msbio_remaining_para_count], byte 0x20
+		sub word [bp-$$+var.msbio_remaining_para_count], byte 0x20
 		ja continue_reading
 
 jump_to_msbio:
@@ -493,9 +493,9 @@ jump_to_msbio:
 		;call print_dot  ; For debugging.
 		xor ax, ax  ; `mov ax, [0x7fa]' of the original (0x800-byte) msload, the value is 0.
 		xor bx, bx  ; `mov ax, [0x7fa+2]' of the original (0x800-byte) msload, the value is 0.
-		mov di, [bp+var.msbio_passed_para_count]
-		mov dl, [bp+var.drive_number]
-		mov dh, [bp+bpb.media_descriptor]  ; Is this actually used? https://retrocomputing.stackexchange.com/q/31129
+		mov di, [bp-$$+var.msbio_passed_para_count]
+		mov dl, [bp-$$+var.drive_number]
+		mov dh, [bp-$$+bpb.media_descriptor]  ; Is this actually used? https://retrocomputing.stackexchange.com/q/31129
 .jmp_far_inst:	jmp 0x70:0  ; Jump to msbio loaded from io.sys.
 
 continue_reading:
@@ -511,10 +511,10 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		push cx  ; Save.
 		mov si, ax
 		xor cx, cx
-		cmp word [bp+bpb.sectors_per_fat_fat1x], byte 0
+		cmp word [bp-$$+bpb.sectors_per_fat_fat1x], byte 0
 		je .fat32
 		xor dx, dx
-		cmp [bp+var.is_fat12], dl  ; 0.
+		cmp [bp-$$+var.is_fat12], dl  ; 0.
 		je .fat16
 .fat12:		shr ax, 1
 		add ax, si
@@ -542,14 +542,14 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		; Now: SI is the byte offset of the pointer word or dword within the sector (can be 0x1ff for FAT12; for others, it's at most 0x1fe).
 		; Now: CL is 4 for FAT12, 0 for others. It will be used as a shift amount on the low word of the byte offset.
 		; Now: CH is the low byte of the cluster number (will be used for its low bit, parity) for FAT12, 0 for others.
-		add ax, [bp+var.fat_sec_ofs]
-		adc dx, [bp+var.fat_sec_ofs+2]
+		add ax, [bp-$$+var.fat_sec_ofs]
+		adc dx, [bp-$$+var.fat_sec_ofs+2]
 		; Now: DX:AX is the sector offset (LBA); SI is the byte offset within the sector.
-		mov es, [bp+var.fat_cache_segment]
+		mov es, [bp-$$+var.fat_cache_segment]
 		; Is it the last accessed and already buffered FAT sector?
-		cmp ax, [bp+var.single_cached_fat_sec_ofs]
+		cmp ax, [bp-$$+var.single_cached_fat_sec_ofs]
 		jne .fat_read_sector_now
-		cmp dx, [bp+var.single_cached_fat_sec_ofs+2]
+		cmp dx, [bp-$$+var.single_cached_fat_sec_ofs+2]
 		je .fat_sector_read
 .fat_read_sector_now:
 		call read_fat_sector_to_cache
@@ -577,9 +577,9 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		pop si  ; Restore.
 		jmp strict near next_kernel_cluster
 
-read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp+var.single_cached_fat_sec_ofs].
-		mov [bp+var.single_cached_fat_sec_ofs], ax
-		mov [bp+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
+read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp-$$+var.single_cached_fat_sec_ofs].
+		mov [bp-$$+var.single_cached_fat_sec_ofs], ax
+		mov [bp-$$+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
 		jmp strict near read_sector  ; Tail call.
 
 cont_fatal:  ; Continue handling a fatal error.
@@ -588,18 +588,18 @@ cont_fatal:  ; Continue handling a fatal error.
 		xor ax, ax
 		mov ds, ax
 		int 0x16  ; Wait for keystroke, and read it.
-		les di, [bp+var.orig_dipt_offset]
+		les di, [bp-$$+var.orig_dipt_offset]
 		mov si, (0x1e<<2)  ; DPT (.dipt) int 1eh vector.
 		mov [si], di  ; Offset of int 1eh vector.
 		mov [si+2], es  ; Segment of int 1eh vector.
 		int 0x19  ; Reboot.
 		; Not reached.
 
-errmsg_replace:	db 13, 10, 'Replace the disk, and then press any key', 13, 10, 0, 0  ; Same message as in Windows 98 SE.
+errmsg_replace:	db 13, 10, 'Replace the disk, and then press any key', 13, 10, 0  ; Same message as in Windows 98 SE.
 
 %if 0  ; For debugging.
-		mov al, [bp+var.chs_or_lba]
-		mov [bp+errmsg_dos7], al
+		mov al, [bp-$$+var.chs_or_lba]
+		mov [bp-$$+errmsg_dos7], al
 		jmp fatal1
 %endif
 
