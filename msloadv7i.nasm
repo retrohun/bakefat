@@ -199,7 +199,7 @@ initialized_data:
 var.single_cached_fat_sec_ofs: dd 0
 var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
 var.skip_sector_count: db MSLOAD_SECTOR_COUNT
-var.fat_cache_segment: dw 0x40  ; Right after the relocated copy of our code. To get its value, base segment value (AX) will be added to it.
+var.fat_cache_segment: dw 0xc0  ; Right after the relocated copy of our code. To get its value, base segment value (AX) will be added to it.
 %if $-msload>=0x80
   %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
   dw 1/0
