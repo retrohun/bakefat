@@ -116,7 +116,7 @@ rorg: equ $-0x800
 
 CHS_OR_LBA:
 .CHS equ 0x90
-.LBA equ 0x0e
+.LBA equ 0x0e  ; 0x0c may also indicate LBA.
 
 RELOC_BASE_SEGMENT equ 0x4000  ; Works with msbio payloads up to 256 KiB (== 0x4000 << 4 bytes).
 
@@ -528,6 +528,9 @@ jump_to_msbio:
 		mov di, [bp-$$+var.msbio_passed_para_count]
 		mov dl, [bp-$$+var.drive_number]
 		mov dh, [bp-$$+bpb.media_descriptor]  ; Is this actually used? https://retrocomputing.stackexchange.com/q/31129
+		; More values are passed (some of them from the BPB) to
+		; msbio, starting at SS:BP, and it uses these values later,
+		; for example, it uses the LBA flag ([BP+2] here).
 .jmp_far_inst:	jmp 0x70:0  ; Jump to msbio loaded from io.sys.
 
 continue_reading:
