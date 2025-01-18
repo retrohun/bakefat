@@ -83,13 +83,17 @@ cpu 8086
 PSTATUS:  ; Partition status.
 .ACTIVE equ 0x80
 
+CHS_OR_LBA:
+.CHS equ 0x90
+.LBA equ 0x0e  ; 0x0c may also indicate LBA.
+
 BOOT_SIGNATURE equ 0xaa55  ; dw.
 
 %macro fat_header 8  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_gap_sector_count.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 ;
 .header:	jmp strict short .boot_code
-		nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Who uses it? It is ignored by .boot_code.
+.chs_or_lba:	nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload, which passes it on to msbio.
 assert_at .header+3
 .oem_name:	db 'MSDOS5.0'
 assert_at .header+0xb
@@ -238,6 +242,9 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
 		mov [bp-.header+.read_sector+1], al  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'. (AL is still 0 here.)
+%if 0  ; Needs to be propagated to be useful.
+		mov byte [bp-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA.
+%endif
 .done_ebios:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
 		mov ah, 8  ; Read drive parameters.
 		mov [bp-.header+.drive_number], dl  ; .drive_number passed to the MBR .boot_code by the BIOS in DL.

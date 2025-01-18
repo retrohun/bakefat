@@ -73,13 +73,18 @@ cpu 8086
 PSTATUS:  ; Partition status.
 .ACTIVE equ 0x80
 
+CHS_OR_LBA:
+.CHS equ 0x90
+.LBA equ 0x0e  ; 0x0c may also indicate LBA.
+
 BOOT_SIGNATURE equ 0xaa55  ; dw.
 
 %macro fat_header 8  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_gap_sector_count.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 ;
 .header:	jmp strict short .boot_code
-.chs_or_lba_byte: nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload. !! Who else uses it? It is ignored by our .boot_code.
+
+.chs_or_lba:	nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload, which passes it on to msbio.
 assert_at .header+3
 .oem_name:	db 'MSDOS5.0'
 assert_at .header+0xb
@@ -229,6 +234,9 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
 		mov byte [bp-.header+.read_sector_c+1], .read_sector_lba-(.read_sector_c+3)  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'.
+  %if 0
+		mov byte [bp-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA.
+  %endif
 %endif
 .done_ebios:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
 		mov ah, 8  ; Read drive parameters.
@@ -317,6 +325,20 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		lea di, [bx-.header+.sectors_per_track]
 		mov cl, 4  ; 4 bytes.
 		call .change_bpb  ; Copy to word [bx-.header+sectors_per_track] and then word [bx-.header+.head_count].
+%if 0  ; This would be too long.
+                mov si, -.org+.chs_or_lba
+		lea di, [bx-.header+.chs_or_lba]
+		mov cl, 1  ; 1 byte.
+		call .change_bpb
+%elif 0  ; This wold be too long (by 6 bytes).
+		cmp byte [bp-.header+.read_sector_c+1], .read_sector_lba
+		jne .not_lba
+		mov byte [bx-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA.
+.not_lba:
+%elif 0  ; !! This is still too long (by 6 bytes).
+		mov al, [bp-.header+.chs_or_lba]
+		mov [bx-.header+.chs_or_lba], al
+%endif
 		pop si  ; Pass it to boot_sector.boot_code according to the load protocol.
 .done_fatfix:	;mov dl, [bp-.header+.drive_number0]  ; No need for mov, DL still contains the drive number. Pass .drive_number0 to the boot sector .boot_code in DL.
 		cmp [bx-.header+.var_change], ch  ; CH == 0.
