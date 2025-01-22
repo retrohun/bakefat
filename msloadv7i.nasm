@@ -32,7 +32,6 @@
 ; * 0x40700..0x40800: Our stack after cont_relocated. Memory address of its end: SS:0x800 == SS:BP. (See .setup_reloc_segment for alternative address values.)
 ; * 0x40800..0x40c00: Our relocated msload code and data: CS:0x800 == DS:0x800 == ES:0x800 == SS:0x800 == SS:BP. Use `[bp-$$+var....]` for access, and `-rorg+var....` to get the oaddress. (See .setup_reloc_segment for alternative address values.) The `-$$` is a displacement size optimization (from 2 to 1 byte).
 ; * 0x40c00..0x40e00: Cached sector read from the FAT. (See .setup_reloc_segment for alternative address values.)
-; * 0x40e00..0x41000: Temporary sector data.
 ;
 
 bits 16
@@ -163,7 +162,7 @@ load_code:
 		cld
 .setup_reloc_segment:
 		;mov ax, ((end-mz_header)>>4)  ; Just behind the msbio payload.
-		mov ax, RELOC_BASE_SEGMENT
+		mov ax, RELOC_BASE_SEGMENT  ; Work with msbio payloads up to 256 KiB - 0x100 bytes.
 		mov es, ax
 		push cs
 		pop ds
@@ -207,17 +206,16 @@ load_code:
 		pop bx  ; Discard value from boot sector boot code.
 
 		jmp short initialized_data.end
+		align 2, nop
 initialized_data:
-var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
-		align 2, nop  ; Nothing.
 %if $-msload<var.end-var
   %error 'OVERLAP_BETWEEN_VAR_AND_INIIALIZED_DATA'
   dw 1/0
 %endif
 var.single_cached_fat_sec_ofs: dd 0
+var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
 var.skip_sector_count: db MSLOAD_SECTOR_COUNT
 var.fat_cache_segment: dw RELOC_BASE_SEGMENT+0xc0  ; Right after the relocated copy of our code.
-var.read_chs_segment: dw RELOC_BASE_SEGMENT+0xe0  ; Right after the fat cache sector.
 %if $-msload>=0x80
   %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
   dw 1/0
@@ -280,11 +278,12 @@ read_sector:
 		push cx  ; .dap_size := 0x10.
 		mov si, sp
 		mov ah, 0x42
-		mov dl, [bp-$$+var.drive_number]
+.do_read:	mov dl, [bp-$$+var.drive_number]
 		int 0x13  ; BIOS syscall to read sectors.
-		jc fatal_disk
+		mov si, -rorg+errmsg_disk
+		jc fatal
 		add sp, byte 0x10  ; Pop the .dap and keep CF (indicates error).
-.done:		pop si  ; Restore.
+		pop si  ; Restore.
 		pop dx  ; Restore.
 		pop cx  ; Restore.
 		pop bx  ; Restore.
@@ -321,37 +320,9 @@ read_sector:
 		ror ah, 1
 		or cl, ah
 		mov ax, 0x201  ; AL == 1 means: read 1 sector.
-		mov dl, [bp-$$+var.drive_number]
-		; This is a workaround: we read the sector to somewhere else
-		; (var.read_chs_segment), and then do a `rep movsw' to copy
-		; it to the correct location.
-		;
-		; https://retrocomputing.stackexchange.com/q/31154
-		; There is a QEMU 2.11.1 (or SeaBIOS) bug causing reads to
-		; fail if the linear address is 0x?fe01 .. 0x?feff. When
-		; reading io.sys larger than 63488 bytes (typical for MS-DOS
-		; v7 io.sys), ES:BX becomes 0xff0:0, thus the read is
-		; affected by this bug.
-		push es
-		mov es, [bp-$$+var.read_chs_segment]
-		;call print_many  ; For debugging.
-		int 0x13  ; BIOS syscall to read sectors.
-		jc fatal_disk
-		push es
-		pop ds
-		pop es
-		push di  ; Save.
-		xor si, si
-		xor di, di
-		mov cx, 0x100
-		rep movsw
-		pop di  ; Restore.
-		push ss
-		pop ds
-		jmp short .done
+		sub sp, byte 0x10  ; Adapt to the .do_read ABI.
+		jmp short .do_read
 
-fatal_disk:	mov si, -rorg+errmsg_disk
-		db 2  ; A shorter way of `jmp short fatal'. This, with the `mov si, ...' below generates `add bh, [bp-rorg+errmsg_dos7]' with 2-byte displacement.
 fatal1:		mov si, -rorg+errmsg_dos7
 fatal:		mov ax, -rorg+cont_fatal  ; Continue here after print_msg.
 		push ax  ; Return address for simulated `call'.
@@ -360,8 +331,8 @@ fatal:		mov ax, -rorg+cont_fatal  ; Continue here after print_msg.
 ; Prints NUL-terminated message starting at DS:SI, and halts.
 ; Ruins: AX, BX, SI, flags.
 print_msg:	mov ah, 0xe
-		xor bx, bx
-.next_msg_byte:	lodsb
+		mov bx, 7
+.next_msg_byte:	lodsb  ; Assumes DS == 0.
 		test al, al  ; Found terminating NUL?
 		jz .ret
 		int 0x10
@@ -467,8 +438,9 @@ detect_fat12:  ; Input: CX == 0.
 		inc byte [bp-$$+var.is_fat12]
 .done:
 
-read_msbio:
-		mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]
+read_msbio:	;mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]  ; This would be 0x70, which is not 0x200-aligned, needed for sector wraparound protection: https://retrocomputing.stackexchange.com/a/31157
+		mov ax, 0x80
+		mov es, ax
 		mov ax, [bp-$$+var.our_cluster_ofs]
 		mov dx, [bp-$$+var.our_cluster_ofs+2]
 next_kernel_cluster:
@@ -492,7 +464,8 @@ cluster_to_lba:  ; Converts cluster number in DX:AX (DX is ignored for FAT12 and
 		; EOC encountered before we could read the desired number of sectors.
 .jmp_fatal1:	jmp strict near fatal1
 
-errmsg_disk:	db 'Disk error', 0  ; It just fits before 0x200.
+errmsg_dos7:	db 'DOS7 load error', 0
+errmsg_disk:	db 'Disk error', 0
 
 		times 0x200-($-$$) db '-'
 
@@ -501,11 +474,8 @@ assert_fofs 0x200
 entry:		db 'BJ'  ; Magic bytes: `inc dx ++ dec dx'. The Windows 98 SE boot sector code checks for this: cmp word [bx+0x200], 'BJ'
 		jmp strict near load_code
 
-errmsg_dos7:	db 'DOS7 load error', 0
-
 ; Execution continues here after `jmp near read_msbio', after `load_code'.
-no_eoc:
-		sub ax, byte 2
+no_eoc:		sub ax, byte 2
 		sbb dx, byte 0
 		jc cluster_to_lba.jmp_fatal1  ; It's an error to follow cluster 0 (free) and 1 (reserved for temporary allocations).
 		; Sector := (cluster-2) * clustersize + data_start.
@@ -527,8 +497,23 @@ read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (L
 		;call print_star  ; For debugging.
 		call read_sector  ; TODO(pts): Read multiple sectors at once, for faster speed, especially on floppies.
 		mov bx, es
-		lea bx, [bx+0x20]
+		push cx  ; Save for both CL and CH.
+		push ds  ; Save because print_msg assumes DS == 0.
+		push si  ; !! Why save?
+		push di  ; !! Why save?
+		mov ds, bx
+		lea bx, [bx-0x10]  ; Copy from 0x80+:0 to 0x70+:0. We read to 0x80 (a multiple of 0x20) because of sector wraparound protection (https://retrocomputing.stackexchange.com/a/31157), but the load protocol needs 0x70.
 		mov es, bx
+		xor si, si
+		xor di, di
+		mov cx, 0x100  ; Copy 1 sector: 0x200 bytes.
+		rep movsw
+		lea bx, [bx+0x30]
+		mov es, bx  ; Read location for next sector.
+		pop di  ; !! Restore.
+		pop si  ; !! Restore.
+		pop ds  ; Restore.
+		pop cx  ; Restore for both CL and CH.
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		sub word [bp-$$+var.msbio_remaining_para_count], byte 0x20

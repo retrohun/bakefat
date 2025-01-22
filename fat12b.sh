@@ -73,14 +73,14 @@ elif false; then  # !! smaller crc Works: crc32 random.bin
   mcopy -bsomp -i fdc.img IO.SYS.win98se ::IO.SYS
   mcopy -bsomp -i fdc.img COMMAND.COM.win98se ::COMMAND.COM
   msd=
-elif false; then  # !! smaller crc Works: crc32 random.bin
+elif true; then  # !! smaller crc Works: crc32 random.bin
   #mcopy -bsomp -i fdc.img IO.SYS.win98cdn7.1 ::IO.SYS  # Works.
   #mcopy -bsomp -i fdc.img IO.SYS.win98cdn7.1app ::IO.SYS  # Works.
   #mcopy -bsomp -i fdc.img IO.SYS.win98cdn7.1i4 ::IO.SYS  # Works.
   mcopy -bsomp -i fdc.img IO.SYS.win98cdn7.1i ::IO.SYS  # Works.
   mcopy -bsomp -i fdc.img COMMAND.COM.win98cdn7.1 ::COMMAND.COM
   msd=
-elif true; then  # !! smaller crc Works: crc32 random.bin
+elif false; then  # !! smaller crc Works: crc32 random.bin
   mcopy -bsomp -i fdc.img IO.SYS.msdos8 ::IO.SYS
   mcopy -bsomp -i fdc.img COMMAND.COM.msdos8 ::COMMAND.COM
   msd=
