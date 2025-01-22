@@ -44,8 +44,10 @@ org 0  ; Base offfsets are added manually where needed.
   times -(%1)+($-$$) times 0 nop
 %endm
 
-%define ORIG_IO_SYS 'IO.SYS.win98cdn7.1app'
-;%define ORIG_IO_SYS 'IO.SYS.win98se'
+%ifndef JUST_MSLOAD
+  %define ORIG_IO_SYS 'IO.SYS.win98cdn7.1app'
+  ;%define ORIG_IO_SYS 'IO.SYS.win98se'
+%endif
 
 %ifndef MSLOAD_SECTOR_COUNT  ; Can be 2 or 4. 4 for compatibility.
   %define MSLOAD_SECTOR_COUNT 2
@@ -124,14 +126,26 @@ msload:
 
 mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 .signature:	db 'MZ'  ; Magic bytes checked by the boot sector code.
-%if MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by a post-processing: subtracting 2 sectors from .nblocks.
+%ifdef JUST_MSLOAD
+.lastsize:	dw 0
+.nblocks:	dw 0
+%elif MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by a post-processing: subtracting 2 sectors from .nblocks.
 .lastsize:      dw (end-.signature) & 0x1ff  ; The value 0 and 0x200 are equivalent here. Microsoft Linker 3.05 generates 0, so do we. Number of bytes in the last 0x200-byte block in the .exe file.
 .nblocks:       dw (end-.signature +0x1ff)>> 9  ; Number of 0x200-byte blocks in .exe file (rounded up).
 %else
-		incbin ORIG_IO_SYS, 2, 4
+.lastsize:	incbin ORIG_IO_SYS, 2, 4
 %endif
 .nreloc:	dw 0  ; No relocations. That's always true, even for MSDCM.
-%if MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
+%ifdef JUST_MSLOAD
+.hdrsize:	dw 0  ; Will have to be changed later.
+.minalloc:	dw 0
+.maxalloc:	dw 0
+.ss:		dw 0
+.sp:		dw 0
+.checksum:	dw 0
+.ip:		dw 0
+.cs:		dw 0
+%elif MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
 .hdrsize:	dw (end-.signature)>>4  ; Used by msload to determine how many bytes of msbio to load. When converting an existing io.sys, modify this manually by subtracting 0x40 (2 sectors).
 .minalloc:	dw 0
 .maxalloc:	dw 0
@@ -139,7 +153,7 @@ mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 .sp:		dw 0
 .checksum:	dw 0
 .ip:		dw 0
-.cs:	dw 0
+.cs:		dw 0
 %else
 .hdrsize:	incbin ORIG_IO_SYS, 8, 0x18-8  ; Used by the MSDCM DOS .exe embedded in Windows 95 and Windows 98 io.sys.
 %endif
@@ -159,7 +173,7 @@ load_code:
 		sub cx, byte 0x20  ; It doesn't sound necessary, but msbio in Windows 98 SE and Windows ME do the same.
 		pop word [si-$$+var.our_cluster_ofs+2]  ; High word. It is arbitrary, and it will be ignored for FAT12 and FAT16.
 		push cx
-		add cx, byte 0x20+0x1f  ; 0x1f is for rounding up the number of sectors.
+		add cx, byte 0x20  ; !!! +0x1f doesn't work  ; 0x1f is for rounding up the number of sectors.
 		; Overlap between load_code and all data above (fat_header, bpb, var) ends by here.
 		mov [si-$$+var.msbio_remaining_para_count], cx  ; Copy it first, because the from-BPB below copy overwrites its original location (mz_header.hdrsize).
 		; The boot sector has also set `dword [bp-4]' to the sector offset of the first data sector (var.clusters_sec_ofs). We ignore it, because we'll compute our own.
@@ -170,7 +184,7 @@ load_code:
 		mov di, -rorg+msload
 		push di
 		mov cx, 0x400>>1
-		rep movsw  ; Copy CX<<1 bytes from DS:SI to ES:DI.
+		rep movsw  ; Copy CX<<1 bytes (the msloadv7i code and data) from DS:SI to ES:DI.
 		; Copy BPB from the loaded boot sector (SS:BP+0xb) to its final location (ES:0x70b).
 		lea si, [bp+((bpb.copy_start-msload)&~1)]
 		mov di, -rorg+msload+((bpb.copy_start-msload)&~1)
@@ -448,7 +462,7 @@ detect_fat12:  ; Input: CX == 0.
 		pop ax
 		div cx
 		; Now: AX: number of clusters.
-		cmp ax, 4096-10  ; Same cluster number check as in MS-DOS 6.22 and MS-DOS 7.x.
+		cmp ax, 4096-10  ; 0xff8-2. Same cluster number check as in MS-DOS 6.22 and MS-DOS 7.x.
 		jnc .done
 		inc byte [bp-$$+var.is_fat12]
 .done:
@@ -732,16 +746,23 @@ print_dot:  ; For debugging.
 		ret
 %endif
 
+%if MSLOAD_SECTOR_COUNT==2
+		times 0x400-4-($-$$) db '-'
+		db 'ML7I'  ; Signature.
+%else
 		times 0x400-($-$$) db '-'
+%endif
 assert_fofs 0x400
 
 %if MSLOAD_SECTOR_COUNT>2
 		times ((MSLOAD_SECTOR_COUNT-2)<<9)-2 db 0
 		db 'MS'  ; Magic bytes which nobody checks.
 %endif
-		
+
+%ifndef JUST_MSLOAD
 msbio:		incbin ORIG_IO_SYS, 4<<9  ; msbio payload, assuming input msload sector count == 4.
 		align 16, nop
 end:
+%endif
 
 ; __END__
