@@ -215,7 +215,7 @@ initialized_data:
 var.single_cached_fat_sec_ofs: dd 0
 var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
 var.skip_sector_count: db MSLOAD_SECTOR_COUNT
-var.fat_cache_segment: dw RELOC_BASE_SEGMENT+0xc0  ; Right after the relocated copy of our code.
+var.fat_cache_segment: dw RELOC_BASE_SEGMENT+0xc0-0x10  ; Right after the relocated copy of our code.
 %if $-msload>=0x80
   %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
   dw 1/0
@@ -253,16 +253,16 @@ initialized_data.end:
 		retf
 
 ; Reads a sector from disk, using LBA or CHS.
-; Inputs: DX:AX: sector offset (LBA); ES: ES:0 points to the destination buffer.
+; Inputs: DX:AX: sector offset (LBA); ES: ES:0x100 points to the destination buffer.
 ; Outputs: none.
 ; Ruins: flags.
-read_sector:
+read_sector_es_0x100:
 		push ax  ; Save.
 		push bx  ; Save.
 		push cx  ; Save.
 		push dx  ; Save.
 		push si  ; Save.
-		xor bx, bx  ; Use offset 0 in ES:BX.
+		mov bx, 0x100   ; Use read destination offset 0 in ES:BX.  This implements sector wraparound protection: https://retrocomputing.stackexchange.com/a/31157
 .js:		jmp short .chs  ; Self-modifying code: EBIOS autodetection may change this to `jmp short .lba' by setting byte [bp-.header+.c].
 .lba:		; Construct .dap (Disk Address Packet) for BIOS int 13h AH == 42, on the stack.
 		xor cx, cx
@@ -363,7 +363,7 @@ check_ebios:	mov byte [bp-$$+var.chs_or_lba], CHS_OR_LBA.CHS
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
 		mov byte [bp-$$+var.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msbio to use LBA.
-		mov byte [bp-$$+read_sector.js+1], read_sector.lba-(read_sector.js+2)  ; Self-modifying code: change the `jmp short .chs' at `read_sector.js' to `jmp short .lba'.
+		mov byte [bp-$$+read_sector_es_0x100.js+1], read_sector_es_0x100.lba-(read_sector_es_0x100.js+2)  ; Self-modifying code: change the `jmp short .chs' at `read_sector_es_0x100.js' to `jmp short .lba'.
 .done_ebios:
 
 get_chs_sizes:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
@@ -438,9 +438,7 @@ detect_fat12:  ; Input: CX == 0.
 		inc byte [bp-$$+var.is_fat12]
 .done:
 
-read_msbio:	;mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]  ; This would be 0x70, which is not 0x200-aligned, needed for sector wraparound protection: https://retrocomputing.stackexchange.com/a/31157
-		mov ax, 0x80
-		mov es, ax
+read_msbio:	mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]  ; 0x70.
 		mov ax, [bp-$$+var.our_cluster_ofs]
 		mov dx, [bp-$$+var.our_cluster_ofs+2]
 next_kernel_cluster:
@@ -495,24 +493,19 @@ read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (L
 		jnc .after_sector
 		inc byte [bp-$$+var.skip_sector_count]  ; Change it back from -1 to 0.
 		;call print_star  ; For debugging.
-		call read_sector  ; TODO(pts): Read multiple sectors at once, for faster speed, especially on floppies.
-		mov bx, es
+		call read_sector_es_0x100  ; TODO(pts): Read multiple sectors at once, for faster speed, especially on floppies.
 		push cx  ; Save for both CL and CH.
-		push ds  ; Save because print_msg assumes DS == 0.
 		push si  ; !! Why save?
 		push di  ; !! Why save?
-		mov ds, bx
-		lea bx, [bx-0x10]  ; Copy from 0x80+:0 to 0x70+:0. We read to 0x80 (a multiple of 0x20) because of sector wraparound protection (https://retrocomputing.stackexchange.com/a/31157), but the load protocol needs 0x70.
-		mov es, bx
-		xor si, si
+		mov si, 0x100
 		xor di, di
-		mov cx, 0x100  ; Copy 1 sector: 0x200 bytes.
-		rep movsw
-		lea bx, [bx+0x30]
+		mov cx, si  ; Copy 1 sector: 0x200 bytes from 0x80+:0 to 0x70+:0. We read to 0x80 (a multiple of 0x20) because of sector wraparound protection (https://retrocomputing.stackexchange.com/a/31157), but the load protocol needs 0x70.
+		es rep movsw  ; Copy CX words from ES:SI to ES:DI.
+		mov bx, es
+		lea bx, [bx+0x20]
 		mov es, bx  ; Read location for next sector.
 		pop di  ; !! Restore.
 		pop si  ; !! Restore.
-		pop ds  ; Restore.
 		pop cx  ; Restore for both CL and CH.
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
@@ -588,18 +581,18 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 .fat_read_sector_now:
 		call read_fat_sector_to_cache
 .fat_sector_read:
-		push word [es:si]  ; Save low word of next cluster number.
+		push word [es:si+0x100]  ; Save low word of next cluster number.
 		cmp si, 0x1ff
 		jne .got_new_pointer
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		call read_fat_sector_to_cache
 		pop ax  ; Restore low word of next cluster number to AX.
-		mov ah, [es:0]  ; Get high byte of next cluster number from the next sector.
+		mov ah, [es:0x100]  ; Get high byte of next cluster number from the next sector.
 		push ax  ; Make the following `pop ax' a nop.
 .got_new_pointer:
 		pop ax  ; Restore low word of next cluster number to AX.
-		mov dx, [es:si+2]  ; Harmless for FAT12 and FAT16, we don't use the value.
+		mov dx, [es:si+0x102]  ; Harmless for FAT12 and FAT16, we don't use the value.
 		and dh, 0xf  ; Mask out top 4 bits, because FAT32 FAT pointers are only 28 bits. Harmless for FAT12 and FAT16.
 		test ch, 1  ; Is FAT12 cluster number odd?
 		jnz .odd
@@ -614,7 +607,7 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp-$$+var.single_cached_fat_sec_ofs].
 		mov [bp-$$+var.single_cached_fat_sec_ofs], ax
 		mov [bp-$$+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
-		jmp strict near read_sector  ; Tail call.
+		jmp strict near read_sector_es_0x100  ; Tail call.
 
 cont_fatal:  ; Continue handling a fatal error.
 		mov si, -rorg+errmsg_replace
