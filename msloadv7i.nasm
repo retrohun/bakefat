@@ -441,7 +441,7 @@ detect_fat12:  ; Input: CX == 0.
 read_msbio:	mov es, [bp-$$+jump_to_msbio.jmp_far_inst+3]  ; 0x70.
 		mov ax, [bp-$$+var.our_cluster_ofs]
 		mov dx, [bp-$$+var.our_cluster_ofs+2]
-next_kernel_cluster:
+next_kernel_cluster:  ; Now: CX, SI and DI are ruined, BX is unused, BP is used as base address for variables (bpb.* and var.*), DX:AX is the cluser number (DX is ignored for FAT12 and FAT16).
 		push dx
 		push ax  ; Save cluster number (DX:AX).
 
@@ -476,37 +476,33 @@ entry:		db 'BJ'  ; Magic bytes: `inc dx ++ dec dx'. The Windows 98 SE boot secto
 no_eoc:		sub ax, byte 2
 		sbb dx, byte 0
 		jc cluster_to_lba.jmp_fatal1  ; It's an error to follow cluster 0 (free) and 1 (reserved for temporary allocations).
-		; Sector := (cluster-2) * clustersize + data_start.
 		mov cl, [bp-$$+bpb.sectors_per_cluster]
-		push cx  ; Save for CH.
+		mov ch, cl
+		; Sector := (cluster-2) * clustersize + data_start.
 		jmp short .maybe_shift
 .next_shift:	shl ax, 1
 		rcl dx, 1
-.maybe_shift:	shr cl, 1
+.maybe_shift:	shr ch, 1
 		jnz .next_shift
-		pop cx  ; Restore for CH.
+		; Now: CX is sectors per cluster.
 		add ax, [bp-$$+var.clusters_sec_ofs]
 		adc dx, [bp-$$+var.clusters_sec_ofs+2]
 
-read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
+read_kernel_sector:  ; Now: CX is sectors per cluster; DX:AX is sector offset (LBA).
 		sub byte [bp-$$+var.skip_sector_count], 1
 		jnc .after_sector
 		inc byte [bp-$$+var.skip_sector_count]  ; Change it back from -1 to 0.
 		;call print_star  ; For debugging.
 		call read_sector_es_0x100  ; TODO(pts): Read multiple sectors at once, for faster speed, especially on floppies.
-		push cx  ; Save for both CL and CH.
-		push si  ; !! Why save?
-		push di  ; !! Why save?
+		push cx  ; Save (CX == sectors per cluster).
 		mov si, 0x100
 		xor di, di
 		mov cx, si  ; Copy 1 sector: 0x200 bytes from 0x80+:0 to 0x70+:0. We read to 0x80 (a multiple of 0x20) because of sector wraparound protection (https://retrocomputing.stackexchange.com/a/31157), but the load protocol needs 0x70.
 		es rep movsw  ; Copy CX words from ES:SI to ES:DI.
-		mov bx, es
-		lea bx, [bx+0x20]
-		mov es, bx  ; Read location for next sector.
-		pop di  ; !! Restore.
-		pop si  ; !! Restore.
-		pop cx  ; Restore for both CL and CH.
+		mov si, es
+		lea si, [si+0x20]
+		mov es, si  ; Read location for next sector.
+		pop cx  ; Restore (CX := sectors per cluster).
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		sub word [bp-$$+var.msbio_remaining_para_count], byte 0x20
@@ -526,16 +522,13 @@ jump_to_msbio:
 .jmp_far_inst:	jmp 0x70:0  ; Jump to msbio loaded from io.sys.
 
 continue_reading:
-		dec cl  ; Consume 1 sector from the cluster.
-		jnz read_kernel_sector
+		loop read_kernel_sector  ; Consume 1 sector from the cluster (from CX).
 		pop ax
 		pop dx  ; Restore cluster number (DX:AX).
 
-next_cluster:  ; Find the number of the next cluster following DX:AX (DX is ignored for FAT12 and FAT16) in the FAT chain.
+next_cluster:  ; Find the number of the next cluster following DX:AX (DX is ignored for FAT12 and FAT16) in the FAT chain. Ruins SI.
 		;call print_dot  ; For debugging.
-		push si  ; Save.
 		push es  ; Save.
-		push cx  ; Save.
 		mov si, ax
 		xor cx, cx
 		cmp word [bp-$$+bpb.sectors_per_fat_fat1x], byte 0
@@ -599,9 +592,8 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		shl ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
 .odd:		shr ax, cl  ; This is no-op (since CL==0) for FAT16 and FAT32.
 		; Now: DX:AX is the number of next cluster (DX is garbage for FAT12 and FAT16).
-		pop cx  ; Restore.
 		pop es  ; Restore.
-		pop si  ; Restore.
+		; Now: CX and SI are ruined.
 		jmp strict near next_kernel_cluster
 
 read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp-$$+var.single_cached_fat_sec_ofs].
