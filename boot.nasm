@@ -233,16 +233,14 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		jne .done_ebios	 ; No EBIOS.
 		ror cl, 1
 		jnc .done_ebios	 ; No EBIOS.
-		mov byte [bp-.header+.read_sector_c+1], .read_sector_lba-(.read_sector_c+3)  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'.
-  %if 0
-		mov byte [bp-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA.
-  %endif
+		mov byte [bp-.header+.read_sector_js+1], .read_sector_lba-(.read_sector_js+2)  ; Self-modifying code: change the `jmp short .read_sector_chs' at `.read_sector' to `jmp short .read_sector_lba'.
+		mov byte [bp-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA. https://retrocomputing.stackexchange.com/a/31174
 %endif
 .done_ebios:	xor di, di  ; Workaround for buggy BIOS. Also the 0 value will be used later.
 		mov ah, 8  ; Read drive parameters.
 		mov [bp-.header+.drive_number0], dl  ; .drive_number0 passed to the MBR .boot_code by the BIOS in DL.
 		push dx
-		int 0x13  ; BIOS syscall.
+		int 0x13  ; BIOS syscall. This call changes ES and DI only if DL is a floppy drive. But it isn't here, because we are running an MBR.
 		jc .jc_fatal1
 		and cx, byte 0x3f
 		mov [bp-.header+.sectors_per_track], cx
@@ -266,7 +264,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		mov dx, [si+8+2]  ; High word of Sector offset (LBA) of the first sector of the partition.
 		mov bx, sp  ; BX := 0x7c00. That's where we load the partition boot sector to.
 		push di  ; .var_change := 0. DI is still 0.
-		call .read_sector_chs  ; Ruins AX, CX and DX. Sets CX to CHS cyl_sec value. Sets DH to CHS head value. Sets DL to drive number.
+		call .read_sector_chs  ; ES:BX must point to the read buffer (0x200 bytes). Ruins AX, CX and DX. Sets CX to CHS cyl_sec value. Sets DH to CHS head value. Sets DL to drive number.
 		cmp word [0x7dfe], BOOT_SIGNATURE
 		jne .fatal1
 .jc_fatal1:	jc .fatal1  ; This never matches after the BOOT_SIGNATURE check, but it matches after `jc .jc_fatal1'.
@@ -292,9 +290,15 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		;    1.1 and 1.2 (but not 1.3) needs a correct
 		;    boot_sector.sectors_per_track and
 		;    boot_sector.head_count, even if not booted from our HDD.
+		;
 		; !! Write CHS values in the partition table back to the
 		;    on-disk MBR. This is to make FreeDOS kernel display
-		;    fewer warnings at boot time.
+		;    fewer warnings at boot time. Also write the partition
+		;    type updated for LBA, making Windows 95--98--ME use LBA
+		;    to access the filesystem on the partition
+		;    (https://retrocomputing.stackexchange.com/a/31174).
+		;    Unfortunately there is not enuogh remaining space in
+		;    this MBR for that.
 		;
 		; !! Add code to reinstall our mbr.header and mbr.boot_code
 		;    after an installer has overwritten it.
@@ -325,20 +329,13 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		lea di, [bx-.header+.sectors_per_track]
 		mov cl, 4  ; 4 bytes.
 		call .change_bpb  ; Copy to word [bx-.header+sectors_per_track] and then word [bx-.header+.head_count].
-%if 0  ; This would be too long.
-                mov si, -.org+.chs_or_lba
-		lea di, [bx-.header+.chs_or_lba]
-		mov cl, 1  ; 1 byte.
-		call .change_bpb
-%elif 0  ; This wold be too long (by 6 bytes).
-		cmp byte [bp-.header+.read_sector_c+1], .read_sector_lba
-		jne .not_lba
-		mov byte [bx-.header+.chs_or_lba], CHS_OR_LBA.LBA  ; Indicate to msload and msbio in MS-DOS v7 to use LBA.
-.not_lba:
-%elif 0  ; !! This is still too long (by 6 bytes).
 		mov al, [bp-.header+.chs_or_lba]
-		mov [bx-.header+.chs_or_lba], al
-%endif
+		mov [bx-.header+.chs_or_lba], al  ; If we use LBA, indicate to msload and msbio in MS-DOS v7 to use LBA. https://retrocomputing.stackexchange.com/a/31174
+		; Please note that this LBA flag is propagated only for
+		; reading io.sys and drvspace.bin (or dblspace.bin). After
+		; that, the partition type in the partition table takes
+		; over. And we don't have enough space in this MBR for
+		; modifying that (and writing it back to disk).
 		pop si  ; Pass it to boot_sector.boot_code according to the load protocol.
 .done_fatfix:	;mov dl, [bp-.header+.drive_number0]  ; No need for mov, DL still contains the drive number. Pass .drive_number0 to the boot sector .boot_code in DL.
 		cmp [bx-.header+.var_change], ch  ; CH == 0.
@@ -352,7 +349,7 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; boot_sector.sectors_per_track and boot_sector.head_count, even if not
 ; booted from our HDD.
 .write_boot_sector:
-		mov ax, 0x301  ; AL == 1 means: read 1 sector.
+		mov ax, 0x301  ; AL == 1 means: write 1 sector.
 		pop dx  ; Restore [bx-.header+.var_bs_head] to DH and [bx-.header+.var_bs_drive_number] to DL (unnecessary).
 		pop cx  ; Restore [bx-.header+.var_bs_cyl_sec] to CX.
 		int 0x13  ; BIOS syscall to write sectors.
@@ -370,11 +367,11 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; functions in the boot sector only works if mbr.boot_code is not
 ; overwritten.
 .fatal:
+		mov ah, 0xe
+		xor bx, bx
 .next_msg_byte:	lodsb
 		test al, al  ; Found terminating NUL?
 		jz .halt
-		mov ah, 0xe
-		mov bx, 7
 		int 0x10
 		jmp short .next_msg_byte
 .halt:		cli
@@ -403,10 +400,12 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		loop .change_bpb
 		ret
 
-; Reads a single sector from the specified BIOS drive, using LBA (EBIOS) if available, otherwise falling back to CHS.
-; Inputs: DX:AX: sector offset (LBA) on the drive; ES:BX: points to read buffer.
-; Output: DL: drive number. Halts on failures.
-; Ruins: flags.
+; Reads a single sector from the specified BIOS drive, using LBA (EBIOS) if
+; available, otherwise falling back to CHS.
+;
+; Inputs: DX:AX: sector offset (LBA) on the drive; ES:0: points to read buffer.
+; Output: DL: drive number; BX: 0. Halts on failures.
+; Ruins: AX, BX (set t0 0), CX, DX, flags.
 ;
 ; This is a library function which can be called from boot_sector.boot_code
 ; using `call mbr.read_sector+(.org-mbr.org)'. Of course, library
@@ -420,14 +419,9 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 ; and have the same value. The boot_sector.boot_code must do a `mov
 ; [bp-.header+.drive_number0], dl' to make it work.
 .read_sector:
-		push ax  ; Save.
-		push cx  ; Save.
-		push dx  ; Save.
-.read_sector_c:	call .read_sector_chs  ; Self-modifying code: EBIOS autodetection may change this to `jmp short .read_sector_lba' by setting byte [bp-.header+.read_sector_c].
-		pop dx  ; Restore.
-		pop cx  ; Restore.
-		pop ax  ; Restore.
-		ret
+		xor bx, bx  ; Use offset 0 in ES:BX.
+.read_sector_js: jmp short .read_sector_chs  ; Self-modifying code: EBIOS autodetection may change this to `jmp short .read_sector_lba' by setting byte [bp-.header+.read_sector_c].
+		; Fall through .read_sector_lba.
 
 ; Reads a single sector from the specified BIOS drive, using LBA (EBIOS).
 ; Inputs: DX:AX: LBA sector offset (LBA) on the drive; ES:BX: points to read buffer.
@@ -659,7 +653,7 @@ boot_sector_fat32:
 		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
 		jnc .rootdir_cluster_ok
 		mov si, -.org+.errmsg_missing   ; EOC in rootdir cluster. This means that kernel file was not found.
-		jmp strict near mbr.fatal+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
+		jmp strict near mbr.fatal+(.org-mbr.org)  ; Call library function within MBR, to save space.
 .rootdir_cluster_ok:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
 .read_rootdir_sector:
                 ; Now: DX:AX == the next sector offset (LBA) of the root directory in this FAT filesystem; CL: number of root directory sectors remaining in the current cluster.
@@ -737,7 +731,7 @@ boot_sector_fat32:
 		call .cluster_to_lba  ; Also sets CL to [bp-.header+.sectors_per_cluster].
 		jnc .read_kernel_sector
 		; EOC encountered before we could read 4 sectors.
-		jmp strict near mbr.fatal1+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
+		jmp strict near mbr.fatal1+(.org-mbr.org)  ; Call library function within MBR, to save space.
 .read_kernel_sector:  ; Now: CL is sectors per cluster; DX:AX is sector offset (LBA).
 		call .read_disk
 		mov bx, es
@@ -857,10 +851,15 @@ boot_sector_fat32:
 ; Outputs: DX:AX incremented by 1, for next sector.
 ; Ruins: flags.
 .read_disk:
+		push ax  ; Save.
 		push bx  ; Save.
-		xor bx, bx  ; Use offset 0 in ES:BX.
-		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
+		push cx  ; Save.
+		push dx  ; Save.
+		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space.
+		pop dx  ; Restore.
+		pop cx  ; Restore.
 		pop bx  ; Restore.
+		pop ax  ; Restore.
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		ret
@@ -1161,10 +1160,15 @@ boot_sector_fat16:
 ; Outputs: DX:AX incremented by 1, for next sector.
 ; Ruins: flags.
 .read_disk:
+		push ax  ; Save.
 		push bx  ; Save.
-		xor bx, bx  ; Use offset 0 in ES:BX.
+		push cx  ; Save.
+		push dx  ; Save.
 		call mbr.read_sector+(.org-mbr.org)  ; Call library function within MBR, to save space. This one doesn't return.
+		pop dx  ; Restore.
+		pop cx  ; Restore.
 		pop bx  ; Restore.
+		pop ax  ; Restore.
 		add ax, byte 1  ; Next sector.
 		adc dx, byte 0
 		ret
