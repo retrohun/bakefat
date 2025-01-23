@@ -329,13 +329,6 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		lea di, [bx-.header+.sectors_per_track]
 		mov cl, 4  ; 4 bytes.
 		call .change_bpb  ; Copy to word [bx-.header+sectors_per_track] and then word [bx-.header+.head_count].
-		mov al, [bp-.header+.chs_or_lba]
-		mov [bx-.header+.chs_or_lba], al  ; If we use LBA, indicate to msload and msbio in MS-DOS v7 to use LBA. https://retrocomputing.stackexchange.com/a/31174
-		; Please note that this LBA flag is propagated only for
-		; reading io.sys and drvspace.bin (or dblspace.bin). After
-		; that, the partition type in the partition table takes
-		; over. And we don't have enough space in this MBR for
-		; modifying that (and writing it back to disk).
 		pop si  ; Pass it to boot_sector.boot_code according to the load protocol.
 .done_fatfix:	;mov dl, [bp-.header+.drive_number0]  ; No need for mov, DL still contains the drive number. Pass .drive_number0 to the boot sector .boot_code in DL.
 		cmp [bx-.header+.var_change], ch  ; CH == 0.
@@ -355,6 +348,22 @@ fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector
 		int 0x13  ; BIOS syscall to write sectors.
 		; Ignore failure in CL.
 .done_write:	;mov byte [si], PSTATUS.ACTIVE  ; Fake active partition for boot sector. Not needed, we've already checked above.
+		; If we use LBA, indicate to msload and msbio in MS-DOS v7
+		; to use LBA. https://retrocomputing.stackexchange.com/a/31174
+		;
+		; Please note that this LBA flag is propagated only for
+		; reading io.sys and drvspace.bin (or dblspace.bin). After
+		; that, the partition type in the partition table takes
+		; over. And we don't have enough space in this MBR for
+		; modifying that (and writing it back to disk).
+		;
+		; Please note that we must not write this byte to the actual
+		; boot sector, because Windows 98 SE expects 0x90 there, and
+		; would make `dir c:` fail with `Invalid media type reading
+		; drive C` for a FAT16 filesystem with 0xe there.
+		mov al, [bp-.header+.chs_or_lba]
+		mov [bx-.header+.chs_or_lba], al
+		;mov byte [bx-.header+.chs_or_lba], 0xe  ; Force W96 FAT16 (LBA). Value 0xc (W95 FAT32 (LBA)) would also work here.
 		; Also pass pointer to the booting partition in DS:SI.
 		;times 2 pop di  ; No need: the boot sector will set its own SS:SP.
 		jmp 0:0x7c00  ; Jump to boot sector .boot_code.

@@ -89,11 +89,11 @@ CHS_OR_LBA:
 
 BOOT_SIGNATURE equ 0xaa55  ; dw.
 
-%macro fat_header 8  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_gap_sector_count.
+%macro fat_header 9  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_1_sec_ofs; %9: fat_chs_or_lba.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 ;
 .header:	jmp strict short .boot_code
-.chs_or_lba:	nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload, which passes it on to msbio.
+.chs_or_lba:	db (%9)  ; nop  ; 0x90 for CHS. Another possible value is 0x0e (or 0xc) for LBA. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA in msload, which passes it on to msbio.
 assert_at .header+3
 .oem_name:	db 'MSDOS5.0'
 assert_at .header+0xb
@@ -200,7 +200,7 @@ mbr_for_independent:  ; Master Boot record, sector 0 (LBA) of the drive.
 ; MBR code: https://prefetch.net/blog/2006/09/09/digging-through-the-mbr/
 ; MBR code: https://web.archive.org/web/20080312222741/http://ata-atapi.com/hiwmbr.htm
 ; It is unusual to have a FAT filesystem header in an MBR, but that's our main innovation to make `mdir -i hda.img` work.
-fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
+fat_header 1, 0, 2, 1, 1, 1, 1, 0x3f, 0x90  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs, fat_chs_or_lba.
 .org: equ -0x7e00+.header
 		times 0x5a-($-.header) db '+'  ; Pad FAT16 headers to the size of FAT32, for uniformity.
 ;.boot_code:
@@ -627,7 +627,7 @@ assert_at .header+0x200
 
 assert_fofs 0x200
 boot_sector_fat32:
-		fat_header 1, 0, 2, 1, 1, 1, 1, 0  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
+		fat_header 1, 0, 2, 1, 1, 1, 1, 0, 0xe  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs, fat_chs_or_lba.
 %if 1  ; size optimization: Precompute most of this (and for FAT16 as well) at filesystem creation time.
 ; !!! Test this boot code, maybe it doesn't even work.
 		mov di, -1  ; Precomputed .var_clusters_sec_ofs (low word) by the custom sys.com.
@@ -1013,7 +1013,7 @@ assert_at .header+0x200
 
 assert_fofs 0x400
 boot_sector_fat16:
-		fat_header 1, 0, 2, 1, 1, 1, 0, 0  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
+		fat_header 1, 0, 2, 1, 1, 1, 0, 0, 0x90  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs, fat_chs_or_lba.
 		fat_boot_sector_common
 .var_fat_sec_ofs: equ .boot_code+4  ; dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 .var_single_cached_fat_sec_ofs_low: equ .boot_code+8  ; dw. Last accessed FAT sector offset (LBA), low word (overwriting unused bytes). Some invalid value if not populated.
@@ -1390,7 +1390,7 @@ assert_at .header+0x200
 
 assert_fofs 0x600
 boot_sector_fat12:
-		fat_header 1, 0, 2, 1, 1, 1, -1, 0  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs
+		fat_header 1, 0, 2, 1, 1, 1, -1, 0, 0x90  ; !! fat_reserved_sector_count, fat_sector_count, fat_fat_count, fat_sectors_per_cluster, fat_sectors_per_fat, fat_rootdir_sector_count, fat_32, partition_1_sec_ofs, fat_chs_or_lba.
 		fat_boot_sector_common
 .var_fat_sec_ofs: equ .boot_code+4  ; Only the low word is used. dd. Sector offset (LBA) of the first FAT in this FAT filesystem, from the beginning of the drive (overwriting unused bytes). Only used if .fat_sectors_per_cluster<4.
 ;.var_single_cached_fat_sec_ofs_low: equ .boot_code+8  ; Removed. dw. Last accessed FAT sector offset (LBA), low word (overwriting unused bytes). Some invalid value if not populated.
