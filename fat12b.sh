@@ -101,38 +101,59 @@ crc32 random1440k.bin
 rm -f fdd.img
 cp -a fd1200k.img fdd.img
 msd=1
-#mdir -i fdd.img  # To get the free space: 1457664 bytes.
-if false; then  # Works: crc32 random.bin
-  mcopy -bsomp -i fdd.img IO.SYS.fat2 ::IO.SYS
+#mdir -i fdd.img  # To get the free space: 1213952 bytes.
+io_sys="$1"
+test "$io_sys" || io_sys=IO.SYS.msdos330.fat2  # Default.
+if test "$io_sys" = IO.SYS.fat2; then  # Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS  # MS-DOS 6.22.
   mcopy -bsomp -i fdd.img MSDOS.SYS ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM ::COMMAND.COM
-elif false; then  # Works: crc32 random.bin
-  mcopy -bsomp -i fdd.img IO.SYS.msdos500.fat2 ::IO.SYS
+elif test "$io_sys" = IO.SYS.msdos500.fat2; then  # Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
   mcopy -bsomp -i fdd.img MSDOS.SYS.msdos500 ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM.msdos500 ::COMMAND.COM
-elif false; then  # Works: crc32 random.bin
-  mcopy -bsomp -i fdd.img IO.SYS.msdos401.fat2 ::IO.SYS
+elif test "$io_sys" = IO.SYS.msdos401.fat2; then  # Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
   mcopy -bsomp -i fdd.img MSDOS.SYS.msdos401 ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM.msdos401 ::COMMAND.COM
-elif true; then  # Works: crc32 random.bin
-  mcopy -bsomp -i fdd.img IO.SYS.msdos330.fat2 ::IO.SYS
+elif test "$io_sys" = IO.SYS.msdos330.fat2; then  # Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
   mcopy -bsomp -i fdd.img MSDOS.SYS.msdos330 ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM.msdos330 ::COMMAND.COM
-elif false; then  # !! smaller crc Works: crc32 random.bin
-  # !! IO.SYS.win98cdn7.1app doesn't boot from floppy.
-  #mcopy -bsomp -i fdd.img IO.SYS.win98cdn7.1app ::IO.SYS
-  #mcopy -bsomp -i fdd.img COMMAND.COM.win98cdn7.1 ::COMMAND.COM
-  mcopy -bsomp -i fdd.img IO.SYS.win98se ::IO.SYS
-  mcopy -bsomp -i fdd.img COMMAND.COM.win98se ::COMMAND.COM
-  msd=
-elif false; then  # !! smaller crc Works: crc32 random.bin
-  mcopy -bsomp -i fdd.img IO.SYS.msdos8 ::IO.SYS
-  mcopy -bsomp -i fdd.img COMMAND.COM.msdos8 ::COMMAND.COM
-  msd=
-else  # It doesn't boot, because it uses an earlier load protocol (without msload at the begining of io.sys).
-  mcopy -bsomp -i fdd.img IO.SYS.msdos320.fat2 ::IO.SYS
+elif test "$io_sys" = IO.SYS.msdos320.fat2; then   # It doesn't boot, because it uses an earlier load protocol (without msload at the begining of io.sys).
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
   mcopy -bsomp -i fdd.img MSDOS.SYS.msdos320 ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM.msdos320 ::COMMAND.COM
+elif test "$io_sys" = IO.SYS.win98cdn7.1 || test "$io_sys" = IO.SYS.win98cdn7.1app || test "$io_sys" = IO.SYS.win98cdn7.1i || test "$io_sys" = IO.SYS.win98cdn7.1i4 ; then  # !! smaller crc Works: crc32 random.bin
+  # Here IO.SYS has a pointer in the FAT12 table split between two FAT12
+  # sectors (so that part of msloadv7i.nasm in IO.SYS.win98cdn7.1i is also
+  # tested). That's because the total size of tosplit.dat and io.sys is over
+  # floor(512*2/3)*512 == 174592 bytes.
+  rm -f tosplit.dat
+  truncate -s 173568 tosplit.dat  # This offset affects and tests the FAT12 loader code in both the boot sector (fat12b.nasm) and msload (msloadv7i.nasm).
+  mcopy -bsomp -i fdd.img tosplit.dat ::E1S  # Copy it so that IO.SYS will have a pointer in the FAT12 table split between two FAT12 sectors.
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
+  mcopy -bsomp -i fdd.img COMMAND.COM.win98cdn7.1 ::COMMAND.COM
+  msd=
+elif test "$io_sys" = IO.SYS.win98cdn7.1i || test "$io_sys" = IO.SYS.win98cdn7.1i4 ; then  # !! smaller crc Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
+  mcopy -bsomp -i fdd.img COMMAND.COM.win98cdn7.1 ::COMMAND.COM
+  msd=
+elif test "$io_sys" = IO.SYS.win98se; then  # !! smaller crc Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
+  mcopy -bsomp -i fdd.img COMMAND.COM.win98se ::COMMAND.COM
+  msd=
+elif test "$io_sys" = IO.SYS.win95osr2; then  # !! smaller crc Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
+  mcopy -bsomp -i fdd.img COMMAND.COM.win95osr2 ::COMMAND.COM
+  mcopy -bsomp -i fdd.img MSDOS.SYS.win95.app ::MSDOS.SYS  # For BootDelay=0.
+  msd=
+elif test "$io_sys" = IO.SYS.msdos8; then  # !! smaller crc Works: crc32 random.bin
+  mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
+  mcopy -bsomp -i fdd.img COMMAND.COM.msdos8 ::COMMAND.COM
+  msd=
+else
+  : "unknown io.sys specified: $io_sys"; exit 3
 fi
 test -z "$msd" || mattrib -i fdd.img +s ::IO.SYS ::MSDOS.SYS
 mcopy -bsomp -i fdd.img config.sys.msdos6 ::CONFIG.SYS  # To avoid the 2s delay at boot in MS-DOS 6.x: https://retrocomputing.stackexchange.com/a/31116/3494

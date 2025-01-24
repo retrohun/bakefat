@@ -216,13 +216,8 @@ dd if=fat16m.bin bs=65536 of=hdi.img conv=notrunc,sparse
 HDI_IMG=hdi.img
 HDI_IMG=hdi.img@@32256
 export MTOOLS_SKIP_CHECK=1
-mcopy -bsomp -i "$HDI_IMG" empty.dat ::E0
-mcopy -bsomp -i "$HDI_IMG" empty.dat ::E1
-rm -f tosplit.dat
-truncate -s 330K tosplit.dat
-#truncate -s 3K tosplit.dat
-#truncate -s 500K tosplit.dat
-mcopy -bsomp -i "$HDI_IMG" tosplit.dat ::E1S  # Copy it so that IO.SYS will have a pointer in the FAT12 table split between two FAT12 sectors.
+mcopy -bsomp -i "$HDI_IMG" hi.dat ::E0
+mcopy -bsomp -i "$HDI_IMG" hi.dat ::E1
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win95osr2 ::IO.SYS
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98se ::IO.SYS
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.msdos8 ::IO.SYS
@@ -235,9 +230,9 @@ nasm-0.98.39 -O0 -w+orphan-labels -f bin -DMSLOAD_SECTOR_COUNT=4 -o IO.SYS.win98
 mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1i ::IO.SYS  # !!! To gain the size benefit: i4  --> i.
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1app ::IO.SYS
 mattrib -i "$HDI_IMG" +s ::IO.SYS
-mcopy -bsomp -i "$HDI_IMG" empty.dat ::E2
-mcopy -bsomp -i "$HDI_IMG" empty.dat ::E3
-mcopy -bsomp -i "$HDI_IMG" empty.dat ::E4
+mcopy -bsomp -i "$HDI_IMG" hi.dat ::E2
+mcopy -bsomp -i "$HDI_IMG" hi.dat ::E3
+mcopy -bsomp -i "$HDI_IMG" hi.dat ::E4
 #mcopy -bsomp -i "$HDI_IMG" MSDOS.SYS.win95.app ::MSDOS.SYS  # BootDelay=0 in MSDOS.SYS to avoid the 2s delay at boot. Windows 98 ignores BootDelay=, and never delays. msdos.sys not needed by IO.SYS.win98cdn7.1packed (but otherwise if it exists, it needs SystemReg=0 in msdos.sys).
 mcopy -bsomp -i "$HDI_IMG" MSDOS.SYS.win95.app ::MSDOS.SYS  # SystemReg=?
 mattrib -i "$HDI_IMG" +s ::MSDOS.SYS
