@@ -98,7 +98,7 @@ var:
 ; Don't use var+0, [bp] is 1 byte longer than [bp-$$+1].
 .chs_or_lba: equ var+2  ; db. 0x90 for CHS. Another possible value is 0x0e for LBA (and 0x0c is also for LBA). Expected by msbio at this offset. Windows 95 OSR2, Windows 98 and Windows ME boot sector code uses it for enabling LBA. We ignore it.
 .unused_byte equ var+3 ; db.
-.msbio_remaining_para_count: equ var+4  ; dw. Number of paragraphs (16-byte blocks) of msbio payload to load. Will be decremented for remaining.
+.remaining_para_count: equ var+4  ; dw. Number of paragraphs (16-byte blocks) remaining, including the ignored msload paragraphs in the beginning, then the actually loaded msbio paragraphs. Will be decremented after each sector loaded.
 .our_cluster_ofs: equ var+6  ; dd. The high word is arbitrary and ignored for non-FAT32 (i.e. FAT12 and FAT16).
 .no_more_vars_here: equ var+0xa  ; We can go up to var+0xa here, then we have to skip over to bpb.copy_end.
 .sectors_per_fat: equ var+0x24  ; dd. Same location as .sectors_per_fat_fat32, but we will copy the non-FAT32 value to heere as well.
@@ -144,8 +144,8 @@ mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 .checksum:	dw 0
 .ip:		dw 0
 .cs:		dw 0
-%elif MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
-.hdrsize:	dw (end-.signature)>>4  ; Used by msload to determine how many bytes of msbio to load. When converting an existing io.sys, modify this manually by subtracting 0x40 (2 sectors).
+%elif 1  ;%elif MSLOAD_SECTOR_COUNT==2  ; This works only if MSDCM has been removed from io.sys. Fix it by fixing .nblocks first.
+.hdrsize:	dw (end-.signature)>>4  ; This value is OK both with and without MSDCM, but it's unnecessarily large with MSDCM. It should be `(end_before_msdcm-.signature)>>4'.
 .minalloc:	dw 0
 .maxalloc:	dw 0
 .ss:		dw 0
@@ -166,15 +166,32 @@ load_code:
 		mov es, ax
 		push cs
 		pop ds
-		push si
+		push si  ; Will be moved from to stack to [si-$$+var.our_cluster_ofs+2] below.
 		xor si, si
-		mov cx, [si-$$+mz_header.hdrsize]  ; Will be overwritten (partially) by bpb.fat_header.
-		sub cx, byte 0x20  ; It doesn't sound necessary, but msbio in Windows 98 SE and Windows ME do the same.
-		pop word [si-$$+var.our_cluster_ofs+2]  ; High word. It is arbitrary, and it will be ignored for FAT12 and FAT16.
-		push cx
-		add cx, byte 0x20  ; !!! +0x1f doesn't work  ; 0x1f is for rounding up the number of sectors.
+		mov cx, [si-$$+mz_header.hdrsize]  ; Making a copy early, because it will be overwritten (partially) with a copy of bpb.fat_header below.
+		; Reverse engineering Windows 98 SE io.sys msbio code
+		; indicates that the intended input meaning of
+		; msbio_passed_para_count is the number of 0x10-byte
+		; paragraphs loaded from io.sys (file offset 0x800) to
+		; 0x70:0. The number in mz_header.hdrsize also includes the
+		; size of msload (MSLOAD_SECTOR_COUNT<<5 bytes), so we
+		; subtract that below.
+		;
+		; Please note that Windows 98 SE io.sys msload actually
+		; loads many paragraphs more than mz_header.hdrsize-0x80
+		; (exactly how much more depends on the file size and the
+		; cluster size), and it passes msbio_passed_para_count ==
+		; mz_header.hdrsize-0x20 to msbio, in which -0x20 is an
+		; arbitrary value, but io.sys makes sure that
+		; msbio_passed_para_count is not more than the number of
+		; paragraphs loaded.
+		;sub cx, byte 0x20  ; This would match Windows 98 SE io.sys msbio, but we don't want to indicate that much, because a custom truncated io.sys without a logo may not have that much.
+		sub cx, byte MSLOAD_SECTOR_COUNT<<5
+		pop word [si-$$+var.our_cluster_ofs+2]  ; High word, coming from SI. It is arbitrary, and it will be ignored for FAT12 and FAT16. It's important that this instruction is not earlier, because of overlap between load_code and var.
+		push cx  ; Will be popped to msbio_passed_para_count below.
+		add cx, byte MSLOAD_SECTOR_COUNT<<5  ; We add it back, because in remaining_para_count we also count msload.
 		; Overlap between load_code and all data above (fat_header, bpb, var) ends by here.
-		mov [si-$$+var.msbio_remaining_para_count], cx  ; Copy it first, because the from-BPB below copy overwrites its original location (mz_header.hdrsize).
+		mov [si-$$+var.remaining_para_count], cx  ; Copy it first, because the from-BPB below copy overwrites its original location (mz_header.hdrsize).
 		; The boot sector has also set `dword [bp-4]' to the sector offset of the first data sector (var.clusters_sec_ofs). We ignore it, because we'll compute our own.
 		; The boot sector has also set SI:DI to the cluster index of io.sys (i.e.e the file to be loaded).
 		mov [si-$$+var.our_cluster_ofs], di
@@ -341,7 +358,7 @@ print_msg:	mov ah, 0xe
 
 cont_relocated:	; Now: AX==CS==DS==ES==SS: segment of the relocated msload; BP==SP==0x800: offset of the relocated msload; BX: any; CX: 0; DL: .drive_number; DH: any; SI: any; DI: any.
 		;
-		; Now these are initialized: var.msbio_remaining_para_count,
+		; Now these are initialized: var.remaining_para_count,
 		; var.msbio_passed_para_count, var.drive_number,
 		; var.our_cluster_ofs, bpb.copy_start,
 		; bpb.bytes_per_sector, bpb.sectors_per_cluster,
@@ -505,7 +522,7 @@ read_kernel_sector:  ; Now: CX is sectors per cluster; DX:AX is sector offset (L
 		pop cx  ; Restore (CX := sectors per cluster).
 .after_sector:	add ax, byte 1  ; Next sector.
 		adc dx, byte 0
-		sub word [bp-$$+var.msbio_remaining_para_count], byte 0x20
+		sub word [bp-$$+var.remaining_para_count], byte 0x20
 		ja continue_reading
 
 jump_to_msbio:
