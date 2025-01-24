@@ -124,7 +124,7 @@ elif test "$io_sys" = IO.SYS.msdos320.fat2; then   # It doesn't boot, because it
   mcopy -bsomp -i fdd.img "$io_sys" ::IO.SYS
   mcopy -bsomp -i fdd.img MSDOS.SYS.msdos320 ::MSDOS.SYS
   mcopy -bsomp -i fdd.img COMMAND.COM.msdos320 ::COMMAND.COM
-elif test "$io_sys" = IO.SYS.win98cdn7.1 || test "$io_sys" = IO.SYS.win98cdn7.1app || test "$io_sys" = IO.SYS.win98cdn7.1i || test "$io_sys" = IO.SYS.win98cdn7.1i4 ; then  # !! smaller crc Works: crc32 random.bin
+elif test "$io_sys" = IO.SYS.win98cdn7.1 || test "$io_sys" = IO.SYS.win98cdn7.1app || test "$io_sys" = IO.SYS.win98cdn7.1i || test "$io_sys" = IO.SYS.win98cdn7.1i2 || test "$io_sys" = IO.SYS.win98cdn7.1i4 ; then  # !! smaller crc Works: crc32 random.bin
   # Here IO.SYS has a pointer in the FAT12 table split between two FAT12
   # sectors (so that part of msloadv7i.nasm in IO.SYS.win98cdn7.1i is also
   # tested). That's because the total size of tosplit.dat and io.sys is over

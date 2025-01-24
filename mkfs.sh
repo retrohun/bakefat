@@ -225,9 +225,10 @@ mcopy -bsomp -i "$HDI_IMG" hi.dat ::E1
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1app ::IO.SYS  # !!! This doesn't boot from floppy. Does IO.SYS.win98cdn7.1i boot from floppy?
 #nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1sms shortmsload.nasm
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1sms ::IO.SYS
-nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1i msloadv7i.nasm
+nasm-0.98.39 -O0 -w+orphan-labels -f bin -o IO.SYS.win98cdn7.1i msloadv7i.nasm   # -DTIGHT by default.
+nasm-0.98.39 -O0 -w+orphan-labels -f bin -DMSLOAD_SECTOR_COUNT=2 -o IO.SYS.win98cdn7.1i2 msloadv7i.nasm
 nasm-0.98.39 -O0 -w+orphan-labels -f bin -DMSLOAD_SECTOR_COUNT=4 -o IO.SYS.win98cdn7.1i4 msloadv7i.nasm
-mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1i ::IO.SYS  # !!! To gain the size benefit: i4  --> i.
+mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1i ::IO.SYS  # To gain the size benefit: i4  --> i.
 #mcopy -bsomp -i "$HDI_IMG" IO.SYS.win98cdn7.1app ::IO.SYS
 mattrib -i "$HDI_IMG" +s ::IO.SYS
 mcopy -bsomp -i "$HDI_IMG" hi.dat ::E2
