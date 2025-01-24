@@ -210,7 +210,7 @@ load_code:
   dw 1/0
 %endif
 		ss rep movsw  ; Copy CX<<1 bytes from SS:SI to ES:DI.
-		mov ds, ax
+		mov ds, ax  ; RELOC_BASE_SEGMENT.
 		pop di  ; DI := 0x800.
 		mov bx, [di-$$+bpb.sector_count_zero]
 		test bx, bx
@@ -268,6 +268,11 @@ initialized_data.end:
 		mov ax, -rorg+cont_relocated
 		push ax
 		retf
+
+read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp-$$+var.single_cached_fat_sec_ofs].
+		mov [bp-$$+var.single_cached_fat_sec_ofs], ax
+		mov [bp-$$+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
+		; Fall through to read_sector_ex_0x100.
 
 ; Reads a sector from disk, using LBA or CHS.
 ; Inputs: DX:AX: sector offset (LBA); ES: ES:0x100 points to the destination buffer.
@@ -341,14 +346,15 @@ read_sector_es_0x100:
 		jmp short .do_read
 
 fatal1:		mov si, -rorg+errmsg_dos7
-fatal:		mov ax, -rorg+cont_fatal  ; Continue here after print_msg.
+fatal:		les di, [bp-$$+var.orig_dipt_offset]  ; We are doing this early because we have space in the first sector for this.
+		mov ax, -rorg+cont_fatal  ; Continue here after print_msg.
 		push ax  ; Return address for simulated `call'.
 		; Fall through to print_msg.
 
 ; Prints NUL-terminated message starting at DS:SI, and halts.
 ; Ruins: AX, BX, SI, flags.
 print_msg:	mov ah, 0xe
-		mov bx, 7
+		xor bx, bx
 .next_msg_byte:	lodsb  ; Assumes DS == 0.
 		test al, al  ; Found terminating NUL?
 		jz .ret
@@ -613,18 +619,13 @@ next_cluster:  ; Find the number of the next cluster following DX:AX (DX is igno
 		; Now: CX and SI are ruined.
 		jmp strict near next_kernel_cluster
 
-read_fat_sector_to_cache:  ; Read sector DX:AX to ES:0, and save the sector offset (DX:AX) to dword [bp-$$+var.single_cached_fat_sec_ofs].
-		mov [bp-$$+var.single_cached_fat_sec_ofs], ax
-		mov [bp-$$+var.single_cached_fat_sec_ofs+2], dx  ; Mark sector DX:AX as buffered.
-		jmp strict near read_sector_es_0x100  ; Tail call.
-
 cont_fatal:  ; Continue handling a fatal error.
 		mov si, -rorg+errmsg_replace
 		call print_msg
-		xor ax, ax
+		xor ax, ax  ; Good for setting DS and also sets AH := 0 for the `int 0x16' below.
 		mov ds, ax
 		int 0x16  ; Wait for keystroke, and read it.
-		les di, [bp-$$+var.orig_dipt_offset]
+		;les di, [bp-$$+var.orig_dipt_offset]  ; Already done in `fatal:'.
 		mov si, (0x1e<<2)  ; DPT (.dipt) int 1eh vector.
 		mov [si], di  ; Offset of int 1eh vector.
 		mov [si+2], es  ; Segment of int 1eh vector.
