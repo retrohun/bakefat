@@ -87,7 +87,7 @@ fat_hidden_sector_count equ 0  ; No sectors preceding the boot sector.
   fat_cluster_count equ 2863
   fat_expected_sectors_per_fat equ 9
 %else
-  %error 'Missing preset, use e.g. nasm -DP_1440K'
+  %error MISSING_PRESET_USE_DP  ; 'Missing preset, use e.g. nasm -DP_1440K'
   db 1/0  ; Force fatal error in NASM 0.98.39.
 %endif
 
@@ -113,21 +113,21 @@ fat_minimum_sector_count equ fat_clusters_sec_ofs+fat_cluster_count*fat_sectors_
 fat_maximum_sector_count equ fat_minimum_sector_count+fat_sectors_per_cluster-1
 
 %if fat_rootdir_entry_count&0xf
-  %error 'Rootdir entry count must be a multiple of 0x10.'  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up).
+  %error BAD_ROOTDIR_ENTRY_COUNT  ; 'Rootdir entry count must be a multiple of 0x10.'  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up).
 %endif
 %if fat_sectors_per_fat!=fat_expected_sectors_per_fat
-  %error 'Bad number of sectors per FAT.'
+  %error BAD_SECTORS_PER_FAT  ; 'Bad number of sectors per FAT.'
 %endif
 %if fat_sector_count<fat_minimum_sector_count
-  %error 'Too many sectors.'
+  %error TOO_MANY_SECTORS  ; 'Too many sectors.'
   db 1/0  ; Force fatal error in NASM 0.98.39.
 %endif
 %if fat_sector_count>fat_maximum_sector_count
-  %error 'Too few sectors.'
+  %error TOO_FEW_SECTORS  ; 'Too few sectors.'
   db 1/0  ; Force fatal error in NASM 0.98.39.
 %endif
 %if fat_sector_count>0xffff
-  %error 'Too many sectors, not supported by our FAT12 boot code.'
+  %error TOO_MANY_SECTOS_FOR_FAT12  ; 'Too many sectors, not supported by our FAT12 boot code.'
 %endif
 
 BOOT_SIGNATURE equ 0xaa55  ; dw.

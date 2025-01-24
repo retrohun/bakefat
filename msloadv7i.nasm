@@ -206,7 +206,7 @@ load_code:
 		mov di, -rorg+msload+((bpb.copy_start-msload)&~1)
 		mov cx, ((bpb.copy_end-bpb)-((bpb.copy_start-bpb)&~1)+1)>>1
 %if $-msload<bpb.copy_end-msload
-  %error 'OVERLAP_BETWEEN_BPB_AND_LOAD_CODE_1'
+  %error OVERLAP_BETWEEN_BPB_AND_LOAD_CODE_1
   dw 1/0
 %endif
 		ss rep movsw  ; Copy CX<<1 bytes from SS:SI to ES:DI.
@@ -226,7 +226,7 @@ load_code:
 		align 2, nop
 initialized_data:
 %if $-msload<var.end-var
-  %error 'OVERLAP_BETWEEN_VAR_AND_INIIALIZED_DATA'
+  %error OVERLAP_BETWEEN_VAR_AND_INIIALIZED_DATA
   dw 1/0
 %endif
 var.single_cached_fat_sec_ofs: dd 0
@@ -234,13 +234,13 @@ var.is_fat12: db 0  ; 1 for FAT12, 0 otherwise.
 var.skip_sector_count: db MSLOAD_SECTOR_COUNT
 var.fat_cache_segment: dw RELOC_BASE_SEGMENT+0xc0-0x10  ; Right after the relocated copy of our code.
 %if $-msload>=0x80
-  %error 'INIIALIZED_DATA_ENDS_TOO_LATE'  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
+  %error INIIALIZED_DATA_ENDS_TOO_LATE  ; This prevents single-byte-displacement optimization, e.g. [bp-$$+0x7f] is single-byte, [bp-$$+0x80] is two bytes.
   dw 1/0
 %endif
 initialized_data.end:
 
 %if $-msload<var.end-var
-  %error 'OVERLAP_BETWEEN_VAR_AND_LOAD_CODE_2'
+  %error OVERLAP_BETWEEN_VAR_AND_LOAD_CODE_2
   dw 1/0
 %endif
 		pop word [di-$$+var.orig_dipt_offset]   ; Use value from boot sector boot code.
