@@ -136,7 +136,7 @@ mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 %endif
 .nreloc:	dw 0  ; No relocations. That's always true, even for MSDCM.
 %ifdef JUST_MSLOAD
-.hdrsize:	dw 0  ; Will have to be changed later.
+.hdrsize:	dw 0  ; Will have to be changed later to `(end_before_msdcm-.signature)>>4'.
 .minalloc:	dw 0
 .maxalloc:	dw 0
 .ss:		dw 0
@@ -154,7 +154,7 @@ mz_header:  ; DOS .exe header: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
 .ip:		dw 0
 .cs:		dw 0
 %else
-.hdrsize:	incbin ORIG_IO_SYS, 8, 0x18-8  ; Used by the MSDCM DOS .exe embedded in Windows 95 and Windows 98 io.sys.
+.hdrsize:	incbin ORIG_IO_SYS, 8, 0x18-8  ; Used by the MSDCM DOS .exe embedded in Windows 95 and Windows 98 io.sys. When converting an existing io.sys without MSDCM, set this value to `dw (end_before_msdcm-.signature)>>4'. Original Windows 98 SE io.sys works only with a smaller value (-0 ... -0x80 (4 sectors)), the exact allowed values being very strange, also depending on the cluster size.
 %endif
 assert_fofs 0x18
 load_code:
