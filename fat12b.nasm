@@ -14,6 +14,9 @@ fat_sector_size equ 0x200
 fat_fat_count equ 2
 fat_reserved_sector_count equ 1  ; Only the boot sector.
 fat_hidden_sector_count equ 0  ; No sectors preceding the boot sector.
+%ifdef JUST_BS  ; Boot sector only.
+  %define P_1200K
+%endif
 %ifdef P_160K
   fat_sector_count equ 320
   fat_head_count equ 1
@@ -341,11 +344,14 @@ assert_at .header+0x3e
 		;xor ax, ax ; Already 0. mov ax, 000  ; High word of dword [bp-.header+.var_clusters_sec_ofs]
 		push ax  ; High word of dword [bp-.header+.var_clusters_sec_ofs] to 0. Needed by MS-DOS v7 msload at [SS:BP-2].
 		mov ax, fat_clusters_sec_ofs  ; mov ax, 000  ; Low word of dword [bp-.header+.var_clusters_sec_ofs].
+.use_fat_clusters_sec_ofs: equ $-2
 		push ax
 		;mov word [bp-.header+.var_fat_sec_ofs], 000  ; Hardcoded it to the `add' instruction below.
 		mov cx, fat_rootdir_entry_count  ; mov cx, 000  ; Number of root directory entries.
+.use_fat_rootdir_entry_count: equ $-2
 		;mov dx, 000  ; Zero. High word of the sector offset (LBA) of the root directory in this FAT filesystem.
 		mov ax, fat_rootdir_sec_ofs  ; mov ax, 000  ; Low word of the sector offset (LBA) of the root directory in this FAT filesystem.
+.use_fat_rootdir_sec_ofs: equ $-2
 %endif
 
 		push ds  ; Segment of dword [.var_orig_int13_vector].
@@ -507,6 +513,7 @@ assert_at .header+0x3e
 		; Now: CL is 4. It will be used as a shift amount on the low word of the byte offset.
 		; Now: CH is the low byte of the cluster number (will be used for its low bit, parity) for FAT12, 0 for others.
 		add ax, strict word fat_fat_sec_ofs  ; add ax, strict word 000  ; Low word of [bp+var.fat_sec_ofs].
+.use_fat_fat_sec_ofs: equ $-2
 		;adc dx, [bp+var.fat_sec_ofs+2]
 		mov es, [bp-.header+.bytes_per_sector]  ; Tricky way to `mov es, 0x200'.
 		cmp ax, dx  ; Is sector with offset AX cached?
@@ -636,6 +643,12 @@ assert_at .header+0x3e
 .boot_signature: dw BOOT_SIGNATURE
 assert_at .header+0x200
 
+%ifdef JUST_BS  ; Offsets for patching later.
+  dw .use_fat_clusters_sec_ofs-.header
+  dw .use_fat_rootdir_entry_count-.header
+  dw .use_fat_rootdir_sec_ofs-.header
+  dw .use_fat_fat_sec_ofs-.header
+%else
 remaining_reserved_sectors:
 assert_fofs 1<<9
 		times (fat_reserved_sector_count-1)<<7 dd 0  ; `times ...<<7 dd 0' is faster than `times <<9 db 0' in NASM 0.98.39.
@@ -663,5 +676,6 @@ assert_fofs (fat_clusters_sec_ofs-fat_hidden_sector_count)<<9
 		;times (fat_sector_count-fat_clusters_sec_ofs)<<7 dd 0  ; Empty.
 		section .end start=((fat_sector_count<<9)-1) align=1  ; This is much faster than the `times' above.
 		db 0  ; Make sure that the section is actually emitted.
+%endif
 
 ; __END__

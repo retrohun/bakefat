@@ -26,3 +26,7 @@
 /iboot.bin
 /msd622bs.bin
 /msd622bsi.bin
+/boot.od
+/boot.h
+/boot.bin
+/fat12b.bin
