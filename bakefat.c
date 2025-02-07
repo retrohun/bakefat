@@ -1,6 +1,10 @@
 /*
  * bakefat.c: bootable external FAT hard disk image creator for DOS and Windows 3.1--95--98--ME
  * by pts@fazekas.hu at Thu Feb  6 14:32:22 CET 2025
+ *
+ * Compilr with OpenWatcom C compiler, minilibc686 for Linux i386: minicc -march=i386 -Werror -Wno-n201 -o bakefat bakefat.c
+ * Compile with GCC for Unix: gcc -ansi -pedantic -W -Wall -Wno-overlength-strings -Werror -s -O2 -o bakefat bakefat.c
+ * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
  */
 
 #define _FILE_OFFSET_BITS 64  /* __GLIBC__ and __UCLIBC__ use lseek64(...) instead of lseek(...), and use ftruncate64(...) instead of ftruncate(...). */
@@ -13,10 +17,11 @@
 #include <string.h>
 #include <strings.h>  /* strcasecmp(...). */
 #include <stdlib.h>
-#include <unistd.h>
-
-#define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
-#define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
+#if defined(_WIN32) || defined(MSDOS) || defined(__NT__)
+#  include <io.h>
+#else
+#  include <unistd.h>
+#endif
 
 #ifdef __GNUC__
 #  ifndef inline
@@ -26,6 +31,32 @@
 
 #ifndef O_BINARY
 #  define O_BINARY 0
+#endif
+
+#if defined(__WATCOMC__) && defined(__NT__) && defined(_WCDATA)  /* OpenWatcom C compiler, Win32 target, OpenWatcom libc. */
+  /* !! Create sparse file on Win32: https://web.archive.org/web/20220207223136/http://www.flexhex.com/docs/articles/sparse-files.phtml */
+  /* !! Use Win32 API calls instead of OpenWatcom libc functions; pay attention to: (SetFilePointerEx(...) + SetEndOfFile(...)) leaves the file contents undefined (or do we actually get NUL?): https://stackoverflow.com/q/9809512/97248 */
+  /* OpenWatcom libc SetFilePointer: https://github.com/open-watcom/open-watcom-v2/blob/817428310bd22abeaf8a7018ce4c1c2578975543/bld/clib/handleio/c/__lseek.c#L97-L109 */
+#  define bakefat_lseek64(fd, offset, whence) _lseeki64(fd, offset, whence)
+#  define DO_EMULATE_FTRUNCATE64
+  /* Overrides lib386/nt/clib3r.lib / mbcupper.o
+   * Source: https://github.com/open-watcom/open-watcom-v2/blob/master/bld/clib/mbyte/c/mbcupper.c
+   * Overridden implementation calls CharUpperA in USER32.DLL:
+   * https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-charuppera
+   *
+   * This function is a transitive dependency of _cstart() with main() in
+   * OpenWatcom. By overridding it, we remove the transitive dependency of all
+   * .exe files compiled with `owcc -bwin32' on USER32.DLL.
+   *
+   * This is a simplified implementation, it keeps non-ASCII characters intact.
+   */
+  unsigned int _mbctoupper(unsigned int c) {
+    return (c - 'a' + 0U <= 'z' - 'a' + 0U)  ? c + 'A' - 'a' : c;
+  }
+#else
+  /* !! Does FreeBSD have 64-bit lseek(2) and ftruncate(2) by default? */
+#  define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
+#  define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
 #endif
 
 static const char boot_bin[] =
@@ -94,16 +125,42 @@ static void write_sector(ud sofs) {
   }
 }
 
-/* As a side effect, also seeks. */
+/* As a side effect, also seeks. !! Make it work if scount is smallert than the file size. */
 static void set_file_size_scount(ud scount) {
-  const uint64_t ofs = (uint64_t)scount << 9;
+#ifdef DO_EMULATE_FTRUNCATE64
   /* !! On Win32, (SetFilePointerEx(...) + SetEndOfFile(...)) leaves the file contents undefined (or do we actually get NUL?): https://stackoverflow.com/q/9809512/97248
    * The OpenWatcom libc writes the zeros explicitly on Windows 95, but not on Windows NT: https://github.com/open-watcom/open-watcom-v2/blob/b3a661539e2401e2b00802d7bd7d83a0d6e6a818/bld/clib/handleio/c/chsizwnt.c#L104-L110
    */
+  uint64_t ofs = (uint64_t)scount << 9;
+  uint64_t old_ofs = bakefat_lseek64(sfd, 0, SEEK_CUR);
+  if ((int64_t)old_ofs < 0) { seek_error:
+    fprintf(stderr, "fatal: error seeking in output file: %s\n", sfn);
+    exit(2);
+  }
+  if (old_ofs == ofs) return;
+  if (ofs >= old_ofs) {
+    if ((int64_t)(old_ofs = bakefat_lseek64(sfd, 0, SEEK_END)) < 0) goto seek_error;
+    if (ofs > old_ofs) {
+      --ofs;
+      if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
+        fprintf(stderr, "fatal: error seeking to sector 0x%x for file size change in output file: %s\n", (unsigned)scount, sfn);
+        exit(2);
+      }
+      /* !! Do we have to write each intermediate NUL bytes as weel on Windows 95? https://stackoverflow.com/q/9809512/97248 */
+      if (write(sfd, "", 1) != 1) {  /* Write NUL byte,to enforce file size. */
+        fprintf(stderr, "fatal: error writing before sector 0x%x for file size change in output file: %s\n", (unsigned)scount, sfn);
+        exit(2);
+      }
+      return;
+    }
+  }
+#else
+  const uint64_t ofs = (uint64_t)scount << 9;
   if (bakefat_ftruncate64(sfd, ofs) != 0) {  /* !! If ftruncate64 doesn't exist, on Unix, use lseek64-1, and write a NUL byte. */
     fprintf(stderr, "fatal: error setting the size of output file to 0x%x sectors: %s\n", (unsigned)scount, sfn);
     exit(2);
   }
+#endif
   if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
     fprintf(stderr, "fatal: error seeking to sector 0x%x after file size change in output file: %s\n", (unsigned)scount, sfn);
     exit(2);

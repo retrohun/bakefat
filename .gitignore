@@ -30,3 +30,9 @@
 /boot.h
 /boot.bin
 /fat12b.bin
+/bakefat
+/bakefat.bin
+/bakefat.exe
+/bakefat.m32
+/bakefat.m64
+/bakefat.o
