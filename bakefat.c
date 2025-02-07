@@ -7,7 +7,9 @@
  * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
  */
 
-#define _FILE_OFFSET_BITS 64  /* __GLIBC__ and __UCLIBC__ use lseek64(...) instead of lseek(...), and use ftruncate64(...) instead of ftruncate(...). */
+#ifndef _FILE_OFFSET_BITS
+#  define _FILE_OFFSET_BITS 64  /* __GLIBC__ and __UCLIBC__ use lseek64(...) instead of lseek(...), and use ftruncate64(...) instead of ftruncate(...). */
+#endif
 #define _LARGEFILE64_SOURCE  /* __GLIBC__ lseek64(...). */
 #define _XOPEN_SOURCE  /* __GLIBC__ ftruncate64(...) with `gcc -ansi -pedantic. */
 #define _XOPEN_SOURCE_EXTENDED  /* __GLIBC__ ftruncate64(...). */
@@ -147,7 +149,7 @@ static void set_file_size_scount(ud scount) {
         exit(2);
       }
       /* !! Do we have to write each intermediate NUL bytes as weel on Windows 95? https://stackoverflow.com/q/9809512/97248 */
-      if (write(sfd, "", 1) != 1) {  /* Write NUL byte,to enforce file size. */
+      if (write(sfd, "", 1) != 1) {  /* Write NUL byte,to enforce file size. Writing 1 byte here, because writing 0 bytes on Linux (with SYS_write) doesn't increase the file size. */
         fprintf(stderr, "fatal: error writing before sector 0x%x for file size change in output file: %s\n", (unsigned)scount, sfn);
         exit(2);
       }
