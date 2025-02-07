@@ -3,6 +3,7 @@
  * by pts@fazekas.hu at Thu Feb  6 14:32:22 CET 2025
  */
 
+#define _FILE_OFFSET_BITS 64  /* __GLIBC__ and __UCLIBC__ use lseek64(...) instead of lseek(...), and use ftruncate64(...) instead of ftruncate(...). */
 #define _LARGEFILE64_SOURCE  /* __GLIBC__ lseek64(...). */
 #define _XOPEN_SOURCE  /* __GLIBC__ ftruncate64(...) with `gcc -ansi -pedantic. */
 #define _XOPEN_SOURCE_EXTENDED  /* __GLIBC__ ftruncate64(...). */
@@ -13,6 +14,9 @@
 #include <strings.h>  /* strcasecmp(...). */
 #include <stdlib.h>
 #include <unistd.h>
+
+#define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
+#define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
 
 #ifdef __GNUC__
 #  ifndef inline
@@ -25,8 +29,9 @@
 #endif
 
 static const char boot_bin[] =
-#include "boot.h"
+#  include "boot.h"
 ;
+
 #define BOOT_OFS_MBR 0
 #define BOOT_OFS_FAT32 0x200
 #define BOOT_OFS_FAT16 0x400
@@ -79,7 +84,7 @@ static inline void db(ub x) { *s++ = x; }
 
 static void write_sector(ud sofs) {
   const uint64_t ofs = (uint64_t)sofs << 9;
-  if ((uint64_t)lseek64(sfd, ofs, SEEK_SET) != ofs) {
+  if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
     fprintf(stderr, "fatal: error seeking to sector 0x%x in output file: %s\n", (unsigned)sofs, sfn);
     exit(2);
   }
@@ -95,8 +100,12 @@ static void set_file_size_scount(ud scount) {
   /* !! On Win32, (SetFilePointerEx(...) + SetEndOfFile(...)) leaves the file contents undefined (or do we actually get NUL?): https://stackoverflow.com/q/9809512/97248
    * The OpenWatcom libc writes the zeros explicitly on Windows 95, but not on Windows NT: https://github.com/open-watcom/open-watcom-v2/blob/b3a661539e2401e2b00802d7bd7d83a0d6e6a818/bld/clib/handleio/c/chsizwnt.c#L104-L110
    */
-  if (ftruncate64(sfd, ofs) != 0) {  /* !! If ftruncate64 doesn't exist, on Unix, use lseek64-1, and write a NUL byte. */
+  if (bakefat_ftruncate64(sfd, ofs) != 0) {  /* !! If ftruncate64 doesn't exist, on Unix, use lseek64-1, and write a NUL byte. */
     fprintf(stderr, "fatal: error setting the size of output file to 0x%x sectors: %s\n", (unsigned)scount, sfn);
+    exit(2);
+  }
+  if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
+    fprintf(stderr, "fatal: error seeking to sector 0x%x after file size change in output file: %s\n", (unsigned)scount, sfn);
     exit(2);
   }
 }
