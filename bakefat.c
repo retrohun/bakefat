@@ -37,10 +37,7 @@
 
 #if defined(__WATCOMC__) && defined(__NT__) && defined(_WCDATA)  /* OpenWatcom C compiler, Win32 target, OpenWatcom libc. */
   /* !! Create sparse file on Win32: https://web.archive.org/web/20220207223136/http://www.flexhex.com/docs/articles/sparse-files.phtml */
-  /* !! Use Win32 API calls instead of OpenWatcom libc functions; pay attention to: (SetFilePointerEx(...) + SetEndOfFile(...)) leaves the file contents undefined (or do we actually get NUL?): https://stackoverflow.com/q/9809512/97248 */
   /* OpenWatcom libc SetFilePointer: https://github.com/open-watcom/open-watcom-v2/blob/817428310bd22abeaf8a7018ce4c1c2578975543/bld/clib/handleio/c/__lseek.c#L97-L109 */
-#  define bakefat_lseek64(fd, offset, whence) _lseeki64(fd, offset, whence)
-#  define DO_EMULATE_FTRUNCATE64
   /* Overrides lib386/nt/clib3r.lib / mbcupper.o
    * Source: https://github.com/open-watcom/open-watcom-v2/blob/master/bld/clib/mbyte/c/mbcupper.c
    * Overridden implementation calls CharUpperA in USER32.DLL:
@@ -55,8 +52,79 @@
   unsigned int _mbctoupper(unsigned int c) {
     return (c - 'a' + 0U <= 'z' - 'a' + 0U)  ? c + 'A' - 'a' : c;
   }
+#  define IS_WINNT() ((short)_osbuild >= 0)  /* https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/lib_misc/h/osver.h#L43 */
+#  define IS_WINNT_WIN32API() ((int)GetVersion() >= 0)  /* https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/clib/startup/c/mainwnt.c#L138-L142 and https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/lib_misc/h/osver.h#L43 */
+  extern int __stdcall kernel32_SetEndOfFile(int handle);
+#  pragma aux kernel32_SetEndOfFile "_SetEndOfFile@4"
+  static const char nul_buf[0x1000];
+  /* It assumes that the current position is new_ofs, and upon success, it
+   * will be the same when it returns. The return value is new_ofs on
+   * success, and -1 on error.
+   */
+  static int64_t fill_fd_with_nul(int64_t new_ofs, int fd, int64_t size) {
+    int got;
+#  if 0
+    fprintf(stderr, "info: fill_fd_with_nul: new_ofs=0x%llx size=0x%llx\n", new_ofs, size);
+#  endif
+    if (!IS_WINNT() && size < new_ofs) {
+      if (_lseeki64(fd, size, SEEK_SET) != size) return -1;
+      got = -(unsigned)size & (sizeof(nul_buf) - 1);  /* The initiali write would align the file size to a multiple of sizeof(nul_buf). This is for speed. */
+      size = new_ofs - size;
+      if (!got || (unsigned)got > (uint64_t)size) goto new_got;
+      do {
+        if ((got = (int)write(fd, nul_buf, got)) <= 0) return -1;
+#  if 0
+        fprintf(stderr, "info: fill_fd_with_nul: got=0x%x\n", got);
+#  endif
+        size -= (unsigned)got;
+       new_got:
+        got = (uint64_t)size > sizeof(nul_buf) ? (unsigned)sizeof(nul_buf) : (unsigned)size;
+      } while (size > 0);
+    }
+    return new_ofs;
+  }
+  /* We fix it because OpenWatcom libc _lseeki64 adds undefined bytes
+   * (rather than NUL) bytes when growing the file. This has been verified
+   * on Windows 95 OSR2 and WDOSX. (The default syscall (int 21h with
+   * AH==40h) on MS-DOS (tested with 6.22 and 7.1) also adds undefined
+   * bytes.) SetFilePointer(...) and SetEndOfFile(...) on Windows NT 3.1 and
+   * above and derivatives add NUL bytes.
+   *
+   * This function is not POSIX, because sometimes it explicitly grows the
+   * file if seeking beyond EOF, and POSIX would grow it later, after the
+   * first non-empty write(2). But it's good enough for bakefat.
+   */
+  static int64_t bakefat_lseek64(int fd, int64_t offset, int whence) {
+    int64_t old_ofs, size, new_ofs;
+    if ((old_ofs = _lseeki64(fd, 0, SEEK_CUR)) < 0 ||
+        (size = _lseeki64(fd, 0, SEEK_END)) < 0 ||
+        (new_ofs = _lseeki64(fd, offset, whence)) < 0) return -1;
+    return fill_fd_with_nul(new_ofs, fd, size);  /* Force NUL for newly added bytes. https://stackoverflow.com/q/9809512/97248 */
+  }
+  /* We fix it because OpenWatcom libc _lseeki64 adds undefined bytes
+   * (rather than NUL) bytes when growing the file. This has been verified
+   * on Windows 95 OSR2 and WDOSX. (The default syscall (int 21h with
+   * AH==40h) on MS-DOS (tested with 6.22 and 7.1) also adds undefined
+   * bytes.) SetFilePointer(...) and SetEndOfFile(...) on Windows NT 3.1 and
+   * above and derivatives add NUL bytes.
+   *
+   * Also we have to implement this because OpenWatcom libc doesn't provide
+   * a 64-bit chsize(...) or ftruncate(...).
+   */
+  int bakefat_ftruncate64(int fd, int64_t length) {
+    int64_t old_ofs, size;
+    if ((old_ofs = _lseeki64(fd, 0, SEEK_CUR)) < 0 ||
+        (size = _lseeki64(fd, 0, SEEK_END)) < 0) return -1;
+    if (length != size) {
+      if (_lseeki64(fd, length, SEEK_SET) != length ||
+          !kernel32_SetEndOfFile(_get_osfhandle(fd))) return -1;
+      if (!IS_WINNT() && fill_fd_with_nul(length, fd, size) != length) return -1;  /* Force NUL for newly added bytes. https://stackoverflow.com/q/9809512/97248 */
+    }
+    if (old_ofs != length && _lseeki64(fd, old_ofs, SEEK_SET) != old_ofs) return -1;
+    return 0;
+  }
 #else
-  /* !! Does FreeBSD have 64-bit lseek(2) and ftruncate(2) by default? */
+  /* FreeBSD and musl have 64-bit off_t, lseek(2) and ftruncate(2) by default. Linux libcs (uClibc, EGLIBC, minilibc686) have it with -D_FILE_OFFSET_BITS=64. */
 #  define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
 #  define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
 #endif
@@ -109,7 +177,7 @@ static inline void db(ub x) { *s++ = x; }
   static inline void dw(uw x) { *(uw*)s = x; s += 2; }
   static inline void dd(ud x) { *(ud*)s = x; s += 4; }
   static inline uw gw(const char *p) { return *(const uw*)p; }
-#else  /* !! Test this. */
+#else
   static uw gw(const char *p) { return ((const unsigned char*)p)[0] | ((const unsigned char*)p)[1] << 8; }
   static void dw(uw x) { *s++ = x & 0xff; *s++ = x >> 8; }
   static void dd(ud x) { *s++ = x & 0xff; *s++ = (x >> 8) & 0xff; *s++ = (x >> 16) & 0xff; *s++ = x >> 24; }
@@ -127,44 +195,11 @@ static void write_sector(ud sofs) {
   }
 }
 
-/* As a side effect, also seeks. !! Make it work if scount is smallert than the file size. */
+/* It doesn't seek (i.e. it doesn't modify the file pointer). If it grows the file, it fills with NULs. */
 static void set_file_size_scount(ud scount) {
-#ifdef DO_EMULATE_FTRUNCATE64
-  /* !! On Win32, (SetFilePointerEx(...) + SetEndOfFile(...)) leaves the file contents undefined (or do we actually get NUL?): https://stackoverflow.com/q/9809512/97248
-   * The OpenWatcom libc writes the zeros explicitly on Windows 95, but not on Windows NT: https://github.com/open-watcom/open-watcom-v2/blob/b3a661539e2401e2b00802d7bd7d83a0d6e6a818/bld/clib/handleio/c/chsizwnt.c#L104-L110
-   */
-  uint64_t ofs = (uint64_t)scount << 9;
-  uint64_t old_ofs = bakefat_lseek64(sfd, 0, SEEK_CUR);
-  if ((int64_t)old_ofs < 0) { seek_error:
-    fprintf(stderr, "fatal: error seeking in output file: %s\n", sfn);
-    exit(2);
-  }
-  if (old_ofs == ofs) return;
-  if (ofs >= old_ofs) {
-    if ((int64_t)(old_ofs = bakefat_lseek64(sfd, 0, SEEK_END)) < 0) goto seek_error;
-    if (ofs > old_ofs) {
-      --ofs;
-      if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
-        fprintf(stderr, "fatal: error seeking to sector 0x%x for file size change in output file: %s\n", (unsigned)scount, sfn);
-        exit(2);
-      }
-      /* !! Do we have to write each intermediate NUL bytes as weel on Windows 95? https://stackoverflow.com/q/9809512/97248 */
-      if (write(sfd, "", 1) != 1) {  /* Write NUL byte,to enforce file size. Writing 1 byte here, because writing 0 bytes on Linux (with SYS_write) doesn't increase the file size. */
-        fprintf(stderr, "fatal: error writing before sector 0x%x for file size change in output file: %s\n", (unsigned)scount, sfn);
-        exit(2);
-      }
-      return;
-    }
-  }
-#else
   const uint64_t ofs = (uint64_t)scount << 9;
-  if (bakefat_ftruncate64(sfd, ofs) != 0) {  /* !! If ftruncate64 doesn't exist, on Unix, use lseek64-1, and write a NUL byte. */
+  if (bakefat_ftruncate64(sfd, ofs) != 0) {  /* It doesn't seek (i.e. it doesn't modify the file pointer). If it grows the file, it fills with NULs. */
     fprintf(stderr, "fatal: error setting the size of output file to 0x%x sectors: %s\n", (unsigned)scount, sfn);
-    exit(2);
-  }
-#endif
-  if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
-    fprintf(stderr, "fatal: error seeking to sector 0x%x after file size change in output file: %s\n", (unsigned)scount, sfn);
     exit(2);
   }
 }
