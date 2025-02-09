@@ -13,16 +13,21 @@
 #define _LARGEFILE64_SOURCE  /* __GLIBC__ lseek64(...). */
 #define _XOPEN_SOURCE  /* __GLIBC__ ftruncate64(...) with `gcc -ansi -pedantic. */
 #define _XOPEN_SOURCE_EXTENDED  /* __GLIBC__ ftruncate64(...). */
-#include <fcntl.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <strings.h>  /* strcasecmp(...). */
-#include <stdlib.h>
-#if defined(_WIN32) || defined(MSDOS) || defined(__NT__)
-#  include <io.h>
+#ifdef __MMLIBC386__
+#  include <mmlibc386.h>
 #else
-#  include <unistd.h>
+#  include <fcntl.h>
+#  include <stdint.h>
+#  include <stdarg.h>
+#  include <stdio.h>
+#  include <string.h>
+#  include <strings.h>  /* strcasecmp(...). */
+#  include <stdlib.h>
+#  if defined(_WIN32) || defined(MSDOS) || defined(__NT__)
+#    include <io.h>
+#  else
+#    include <unistd.h>
+#  endif
 #endif
 
 #ifdef __GNUC__
@@ -33,6 +38,16 @@
 
 #ifndef O_BINARY
 #  define O_BINARY 0
+#endif
+
+#ifdef __MMLIBC386__
+#  define msg_printf printf_void
+#else
+  static void msg_printf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    (void)!vfprintf(stderr, fmt, ap);
+  }
 #endif
 
 #if defined(__WATCOMC__) && defined(__NT__) && defined(_WCDATA)  /* OpenWatcom C compiler, Win32 target, OpenWatcom libc. */
@@ -64,7 +79,7 @@
   static int64_t fill_fd_with_nul(int64_t new_ofs, int fd, int64_t size) {
     int got;
 #  if 0
-    fprintf(stderr, "info: fill_fd_with_nul: new_ofs=0x%llx size=0x%llx\n", new_ofs, size);
+    msg_printf("info: fill_fd_with_nul: new_ofs=0x%llx size=0x%llx\n", new_ofs, size);
 #  endif
     if (!IS_WINNT() && size < new_ofs) {
       if (_lseeki64(fd, size, SEEK_SET) != size) return -1;
@@ -74,7 +89,7 @@
       do {
         if ((got = (int)write(fd, nul_buf, got)) <= 0) return -1;
 #  if 0
-        fprintf(stderr, "info: fill_fd_with_nul: got=0x%x\n", got);
+        msg_printf("info: fill_fd_with_nul: got=0x%x\n", got);
 #  endif
         size -= (unsigned)got;
        new_got:
@@ -186,11 +201,11 @@ static inline void db(ub x) { *s++ = x; }
 static void write_sector(ud sofs) {
   const uint64_t ofs = (uint64_t)sofs << 9;
   if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
-    fprintf(stderr, "fatal: error seeking to sector 0x%x in output file: %s\n", (unsigned)sofs, sfn);
+    msg_printf("fatal: error seeking to sector 0x%x in output file: %s\n", (unsigned)sofs, sfn);
     exit(2);
   }
   if ((size_t)write(sfd, sbuf, sizeof(sbuf)) != sizeof(sbuf)) {
-    fprintf(stderr, "fatal: error writing to output file: %s\n", sfn);
+    msg_printf("fatal: error writing to output file: %s\n", sfn);
     exit(2);
   }
 }
@@ -199,7 +214,7 @@ static void write_sector(ud sofs) {
 static void set_file_size_scount(ud scount) {
   const uint64_t ofs = (uint64_t)scount << 9;
   if (bakefat_ftruncate64(sfd, ofs) != 0) {  /* It doesn't seek (i.e. it doesn't modify the file pointer). If it grows the file, it fills with NULs. */
-    fprintf(stderr, "fatal: error setting the size of output file to 0x%x sectors: %s\n", (unsigned)scount, sfn);
+    msg_printf("fatal: error setting the size of output file to 0x%x sectors: %s\n", (unsigned)scount, sfn);
     exit(2);
   }
 }
@@ -259,23 +274,23 @@ static void create_fat12(enum fat12_preset_idx_t pri) {
   const ud fat_maximum_sector_count = fat_minimum_sector_count+(ud)pr->sectors_per_cluster-1;
 
   if ((ud)pr->rootdir_entry_count & 0xf) {
-    fprintf(stderr, "fatal: BAD_ROOTDIR_ENTRY_COUNT\n");  /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
+    msg_printf("fatal: BAD_ROOTDIR_ENTRY_COUNT\n");  /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
     exit(2);
   }
   if (fat_sectors_per_fat != pr->expected_sectors_per_fat) {
-    fprintf(stderr, "fatal: BAD_SECTORS_PER_FAT\n");  /* Bad number of sectors per FAT. */
+    msg_printf("fatal: BAD_SECTORS_PER_FAT\n");  /* Bad number of sectors per FAT. */
     exit(2);
   }
   if (pr->sector_count < fat_minimum_sector_count) {
-    fprintf(stderr, "fatal: TOO_MANY_SECTORS\n");  /* Too many sectors. */
+    msg_printf("fatal: TOO_MANY_SECTORS\n");  /* Too many sectors. */
     exit(2);
   }
   if (pr->sector_count > fat_maximum_sector_count) {
-    fprintf(stderr, "fatal: TOO_FEW_SECTORS\n");  /* Too few sectors. */
+    msg_printf("fatal: TOO_FEW_SECTORS\n");  /* Too few sectors. */
     exit(2);
   }
   if (sizeof(pr->sector_count) > 2 && pr->sector_count > 0xffff - (sizeof(pr->sector_count) <= 2)) {
-    fprintf(stderr, "fatal: TOO_MANY_SECTOS_FOR_FAT12\n");  /* Too many sectors, not supported by our FAT12 boot code. */
+    msg_printf("fatal: TOO_MANY_SECTOS_FOR_FAT12\n");  /* Too many sectors, not supported by our FAT12 boot code. */
     exit(2);
   }
   memcpy(sbuf, boot_bin + BOOT_OFS_FAT12, 0x200);
@@ -323,18 +338,21 @@ static void create_fat12(enum fat12_preset_idx_t pri) {
 int main(int argc, char **argv) {
   char is_help;
   (void)argc;
+#  ifdef __MMLIBC386__
+  stdout_fd = STDERR_FILENO;  /* For msg_printf(...). */
+#  endif
   is_help = argv[1] && strcmp(argv[1], "--help") == 0;
   if (is_help || !argv[1] || !argv[2] || argv[3]) {
-    fprintf(stderr, "Usage: %s <preset> <outfile.img>\n", argv[0]);
+    msg_printf("Usage: %s <preset> <outfile.img>\n", argv[0]);
     exit(is_help ? 0 : 1);
   }
   if (strcasecmp(argv[1], "720k") != 0) {
-    fprintf(stderr, "fatal: unknown preset: %s\n", argv[1]);
+    msg_printf("fatal: unknown preset: %s\n", argv[1]);
     exit(2);
   }
   sfn = argv[2];
   if ((sfd = open(sfn, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666)) < 0) {
-    fprintf(stderr, "fatal: error opening output file: %s\n", sfn);
+    msg_printf("fatal: error opening output file: %s\n", sfn);
     exit(2);
   }
   create_fat12(P_720K);

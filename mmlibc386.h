@@ -1,0 +1,171 @@
+/* by pts@fazekas.hu at Sun Feb  9 15:37:04 CET 2025 */
+
+#ifndef _MMLIBC386_H
+#define _MMLIBC386_H 1
+
+#ifndef __WATCOMC__
+  #error OpenWatcom C compiler required.
+#endif
+#ifndef __386__
+  #error i386 CPU required.
+#endif
+#ifndef __FLAT__
+  #error Flat memory model required.
+#endif
+#ifdef __COMDEF_H_INCLUDED
+  #error OpenWatcom libc must not be used (__COMDEF_H_INCLUDED).
+#endif
+#ifdef _WCDATA
+  #error OpenWatcom libc must not be used (_WCDATA).
+#endif
+
+/* Prevent subsequent #includes()s of some OpenWatcom libc headers. */
+#define _IO_H_INCLUDED 1
+#define _STDIO_H_INCLUDED 1
+#define _STDLIB_H_INCLUDED 1
+#define _STDDEF_H_INCLUDED 1
+#define _STDARG_H_INCLUDED 1
+#define _STDBOOL_H_INCLUDED 1
+#define _STDEXCEPT_H_INCLUDED 1
+#define _STDINT_H_INCLUDED 1
+#define _STDIOBUF_H_INCLUDED 1
+#define _UNISTD_H_INCLUDED 1
+#define _LIMITS_H_INCLUDED 1
+#define _FLOAT_H_INCLUDED 1
+#define _MATH_H_INCLUDED 1
+#define _CTYPE_H_INCLUDED 1
+#define _STRING_H_INCLUDED 1
+#define _STRINGS_H_INCLUDED 1
+#define _FCNTL_H_INCLUDED 1
+#define _ERRNO_H_INCLUDED 1
+#define _SYS_TYPES_H_INCLUDED 1
+#define _SYS_TIME_H_INCLUDED 1
+#define _SYS_UTIME_H_INCLUDED 1
+#define _SYS_SELECT_H_INCLUDED 1
+#define _SYS_MMAN_H_INCLUDED 1
+#define _SYS_IOCTL_H_INCLUDED 1
+#define _SYS_WAIT_H_INCLUDED 1
+
+/* For compatibility with GCC (__GNUC__). */
+#if !defined(__i386__) && (defined(_M_I386) || defined(__386__))
+#  define __i386__ 1  /* Matches __GNUC__. */
+#endif
+#if _M_IX86 >= 400 && !defined(__i486__) && _M_IX86 < 500
+#  define __i486__ 1  /* Matches __GNUC__. */
+#endif
+#if _M_IX86 >= 500 && !defined(__i586__) && _M_IX86 < 600
+#  define __i586__ 1  /* Matches __GNUC__. */
+#endif
+#if _M_IX86 >= 600 && !defined(__i686__)
+#  define __i686__ 1  /* Matches __GNUC__. */
+#endif
+#define __extension__  /* Ignore __GNUC__ construct. */
+#define __restrict__  /* Ignore __GNUC__ construct. */
+#define __attribute__(x)  /* Ignore __GNUC__ construct. */
+#define __inline__ __inline  /* Use OpenWatcom symtax for __GNUC__ construct. */
+#define __signed__ signed
+#ifdef _NO_EXT_KEYS  /* wcc386 -za */
+#  define __STRICT_ANSI__ 1  /* `gcc -ansi' == `gcc -std=c89'. */
+#endif
+
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+#define O_RDONLY 0
+#define O_WRONLY 1
+#define O_RDWR   2
+#define O_ACCMODE 3
+/* Linux-specific, open(...) will translate them to FreeBSD if needed. */
+#define O_CREAT 0100
+#define O_EXCL  0200
+#define O_TRUNC 01000
+#define O_NOCTTY 0400
+#define O_APPEND 02000
+#define O_LARGEFILE 0100000
+
+typedef unsigned char uint8_t;
+typedef signed char int8_t;
+typedef unsigned short uint16_t;
+typedef short int16_t;
+typedef unsigned uint32_t;
+typedef int int32_t;
+__extension__ typedef unsigned long long uint64_t;
+__extension__ typedef long long int64_t;
+
+typedef unsigned size_t;
+typedef int ssize_t;
+typedef long __off_t;
+#if _FILE_OFFSET_BITS == 64  /* Specifgy -D_FILE_OFFSET_BITS=64 for GCC. */
+  __extension__ typedef long long off_t;  /* __extension__ is to make it work with `gcc -ansi -pedantic'. */
+#else
+  typedef long off_t;
+#endif
+__extension__ typedef long long loff_t;  /* __extension__ is to make it work with `gcc -ansi -pedantic'. */
+__extension__ typedef long long off64_t;  /* __extension__ is to make it work with `gcc -ansi -pedantic'. */
+typedef unsigned mode_t;
+typedef long time_t;
+
+void * __cdecl memcpy(void *dest, const void *src, size_t n);
+void * __cdecl memset(void *s, int c, size_t n);
+int __cdecl strcmp(const char *s1, const char *s2);
+int __cdecl strcasecmp(const char *l, const char *r);
+
+__declspec(noreturn) void __watcall exit(int exit_code);
+__declspec(noreturn) void __watcall _exit(int exit_code);
+
+void __watcall putchar_ign(char c);
+void __watcall fflush_stdout(void);
+void __watcall maybe_fflush_stdout(void);
+void __watcall printf_void(const char *format, ...);
+
+ssize_t __cdecl read(int fd, void *buf, size_t count);
+ssize_t __cdecl write(int fd, const char *buf, size_t count);
+int __cdecl isatty(int fd);
+int __cdecl open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
+#if _FILE_OFFSET_BITS == 64
+#  pragma aux open "_open_largefile"
+#endif
+int __cdecl close(int fd);
+int __cdecl unlink(const char *pathname);
+int __cdecl remove(const char *pathname);
+#pragma aux remove "_unlink"  /* Not necessary, the libc defines both. */
+#if _FILE_OFFSET_BITS == 64
+  off64_t __cdecl lseek(int fd, off64_t offset, int whence);
+#  pragma aux lseek "_lseek64"
+#else
+  __off_t __cdecl lseek(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64(...) for 64-bit offset. */
+#endif
+off64_t __cdecl lseek64(int fd, off64_t offset, int whence);
+#if _FILE_OFFSET_BITS == 64
+  int __cdecl ftruncate(int fd, off64_t length);
+#  pragma aux ftruncate "_ftruncate64"
+#else
+  int __cdecl ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
+#endif
+int __cdecl ftruncate64(int fd, off64_t length);
+
+time_t __cdecl time(time_t *tloc);
+
+/* Returns an unaligned pointer. There is no API to free it. Suitable for
+ * many small allocations. Be careful: if you use this with unaligned
+ * sizes, then regular malloc(...) and realloc(...) may also return
+ * unaligned pointers.
+ */
+void * __cdecl malloc_simple_unaligned(size_t size);
+
+extern int errno;
+extern char **environ;
+extern int stdout_fd;
+
+#ifdef CONFIG_MMLIBC386_INTERNAL_DEFS
+  off64_t __cdecl __M_lseek64_linux(int fd, off64_t offset, int whence);
+  int __cdecl __M_fopen_open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
+  extern int __M_is_freebsd;
+#endif
+
+#endif  /* #define _MMLIBC86_H */
