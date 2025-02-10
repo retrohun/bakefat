@@ -335,6 +335,38 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
+%ifdef __NEED_strcpy_
+  global strcpy_
+  strcpy_:  ; char * __watcall strcpy(char *dest, const char *src);
+		push edi
+		xchg esi, edx
+		xchg eax, edi  ; EDI := dest; EAX := junk.
+		push edi
+  .next3:	lodsb
+		stosb
+		test al, al
+		jnz short .next3
+		pop eax  ; Will return dest.
+		xchg esi, edx  ; Restore ESI.
+		pop edi
+		ret
+%endif
+
+%ifdef __NEED_strlen_
+  global strlen_
+  strlen_:  ; size_t __watcall strlen(const char *s);
+		push esi  ; Save.
+		xchg eax, esi
+		xor eax, eax
+		dec eax
+  .next3:	cmp byte [esi], 1
+		inc esi
+		inc eax
+		jnc short .next3
+		pop esi  ; Restore.
+		ret
+%endif
+
 %ifdef __NEED__strcmp
   global _strcmp
   _strcmp:  ; int __cdecl strcmp(const char *s1, const char *s2);
