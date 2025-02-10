@@ -94,19 +94,20 @@ for my $reloc_addr (@reloc_addrs) {
 }
 die("fatal: missing MHDR relocs: $infn\n") if @reloc_addrs < 3 or $reloc_addrs[0] != 4 or $reloc_addrs[1] != 8 or $reloc_addrs[2] != 0xc;  # Relocs for $data_addr, $bss_addr and $end_addr.
 
-my $elfhdr = pack("Ca3C4x8v2V3x8v4x4", 0x7f, "ELF", 1, 1, 1, $osabi, 2, 3, 1, $eip + $org - $text_addr + 0x74, 0x34, 0x34, 0x20, 2, 0x28);  # ELF32_Ehdr.
-$elfhdr .= pack("V8", 1, 0, $org, $org, 0x74 + $data_addr - $text_addr, 0x74 + $data_addr - $text_addr, 5, 0x1000);  # ELF32_Phdr for text.
-# TODO(pts): Omit data if size is 0.
-$elfhdr .= pack("V8", 1, 0x74 + $data_addr - $text_addr, $org + $data_addr - $text_addr + 0x1074, $org + $data_addr - $text_addr + 0x1074, $data_end_addr - $data_addr - 4, $end_addr - $data_addr - 4, 6, 0x1000);  # ELF32_Phdr for data and bss.
-die("fatal: assert: bad ELF-32 header size\n") if length($elfhdr) != 0x74;
+my $phdr1_memsize = $end_addr - $data_addr - 4;
+my $elfhdr_size = $phdr1_memsize ? 0x74 : 0x54;
+my $elfhdr = pack("Ca3C4x8v2V3x8v4x4", 0x7f, "ELF", 1, 1, 1, $osabi, 2, 3, 1, $eip + $org - $text_addr + $elfhdr_size, 0x34, 0x34, 0x20, ($elfhdr_size - 0x34) >> 5, 0x28);  # ELF32_Ehdr.
+$elfhdr .= pack("V8", 1, 0, $org, $org, $elfhdr_size + $data_addr - $text_addr, $elfhdr_size + $data_addr - $text_addr, 5, 0x1000);  # ELF32_Phdr for text.
+$elfhdr .= pack("V8", 1, $elfhdr_size + $data_addr - $text_addr, $org + $data_addr - $text_addr + 0x1000 + $elfhdr_size, $org + $data_addr - $text_addr + 0x1000 + $elfhdr_size, $data_end_addr - $data_addr - 4, $phdr1_memsize, 6, 0x1000) if $phdr1_memsize;  # ELF32_Phdr for data and bss.
+die("fatal: assert: bad ELF-32 header size\n") if length($elfhdr) != $elfhdr_size;
 splice(@reloc_addrs, 0, 3);  # Forget relocs for $data_addr, $bss_addr and $end_addr.
 my $prev_reloc_addr = $text_addr - 4;
 for my $reloc_addr (@reloc_addrs) {
   die("fatal: bad reloc address: $infn\n") if not ($reloc_addr >= $text_addr and $reloc_addr <= $data_end_addr - 4);
   die("fatal: reloc address not after previous one: $infn\n") if $reloc_addr < $prev_reloc_addr + 4;
   my $value_addr = unpack("V", substr($_, $reloc_addr, 4));
-  my $delta = ($value_addr >= $text_addr and $value_addr <= $data_addr) ? $org + 0x74 - $text_addr :
-      ($value_addr >= $data_addr + 4 and $value_addr <= $end_addr) ? $org + 0x1074 - $text_addr - 4 : undef;
+  my $delta = ($value_addr >= $text_addr and $value_addr <= $data_addr) ? $org + $elfhdr_size - $text_addr :
+      ($value_addr >= $data_addr + 4 and $value_addr <= $end_addr) ? $org + 0x1000 + $elfhdr_size - $text_addr - 4 : undef;
   die("fatal: bad reloc value: $infn\n") if !defined($delta);
   substr($_, $reloc_addr, 4) = pack("V",  $value_addr + $delta);
   $prev_reloc_addr = $reloc_addr;
