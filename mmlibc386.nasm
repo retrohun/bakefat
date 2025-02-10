@@ -9,6 +9,7 @@
 ; Info: https://alfonsosiciliano.gitlab.io/posts/2021-01-02-freebsd-system-calls-table.html
 ;
 
+%define CONFIG_I386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
 %define CONFIG_PRINTF_SUPPORT_HEX
 
 %ifndef OS_LINUX
@@ -46,7 +47,7 @@
 _define_needs UNDEFSYMS
 
 bits 32
-cpu 386
+cpu 386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
 
 section _TEXT  USE32 class=CODE align=1
 section CONST  USE32 class=DATA align=4  ; OpenWatcom generates align=4.
