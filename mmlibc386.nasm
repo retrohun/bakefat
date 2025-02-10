@@ -14,11 +14,17 @@
 
 %ifndef OS_LINUX
   %ifndef OS_FREEBSD
-    %error MISSING_D_OS
-    db 1/0
+    %ifndef OS_WIN32
+      %error MISSING_D_OS
+      db 1/0
+    %endif
   %endif
 %endif
 %ifdef OS_LINUX
+  %ifndef OS_FREEBSD
+    %error ERROR_OS_LINUX_NEEDS_FREEBSD  ; !! Add support for -DOS_LINUX without -DOS_FREEBSD, make the executable shorter.
+    db 1/0
+  %endif
   %define __MULTIOS__
 %endif
 %ifdef OS_WIN32

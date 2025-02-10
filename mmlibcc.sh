@@ -24,13 +24,25 @@ wcc386="$mydir"/tools/wcc386-ow2023-03-04.upx
 wlink="$mydir"/tools/wlink-ow1.8.upx
 #busybox1="$mydir"tools/busybox-minicc-1.21.1.upx  # awk gsub(...) is not buggy here.
 
+os=freebsdx; osd="-DOS_LINUX -DOS_FREEBSD"; oscd="-D__MULTIOS__"
+while true; do
+  case "$1" in
+   -blinux) os=linux; osd="-DOS_LINUX"; oscd="-D__LINUX__ -D__linux -D__linux__ -D__gnu_linux__ -Dlinux" ;;
+   -bfreebsd) os=freebsd; osd="-DOS_FREEBSD"; oscd="-D__FREEBSD__ -D__FreeBSD__" ;;
+   -bfreebsdx) os=freebsdx; osd="-DOS_LINUX -DOS_FREEBSD"; oscd="-D__MULTIOS__" ;;
+   -bwin32) os=win32; osd="-DOS_WIN32"; oscd="-D__NT__ -D_WIN32" ;;
+   *) break ;;
+  esac
+  shift
+done
 if test $# != 3 || test "$1" != -o || test "${3%.c}" = "$3"; then
-  echo "Usage: $0 -o <prog> <src.c>" >&2; exit 1
+  echo "Usage: $0 [<flag> ...] -o <prog> <src.c>" >&2; exit 1
 fi
 prog="$2"
 src="$3"
 
-if ! "$wcc386" -q -s -we -j -ei -of+ -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ -I"$mydir" -fo=.obj "$src"; then
+# -of+ == gcc -fno-omit-frame-pointer
+if ! "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj "$src"; then
   echo "fatal: wcc386 failed" >&2
   exit 2
 fi
@@ -49,7 +61,7 @@ if test "$exit_code" != 0; then
    *,\?,*) exit 1 ;;  # Found some error messages other than undefined references.
    "") exit 1 ;;  # Linker failure without undefinded references. This is an internal logic error.
   esac
-  if ! "$nasm" -O0 -w+orphan-labels -f obj -DOS_LINUX -DOS_FREEBSD -DUNDEFSYMS="$undefsyms" -o "$prog".mu.obj "$mydir"/mmlibc386.nasm; then
+  if ! "$nasm" -O0 -w+orphan-labels -f obj -DUNDEFSYMS="$undefsyms" $osd -o "$prog".mu.obj "$mydir"/mmlibc386.nasm; then
     echo "fatal: nasm failed" >&2
     exit 2
   fi
