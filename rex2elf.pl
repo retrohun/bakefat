@@ -73,6 +73,9 @@ substr($_, $image_size) = "";
 substr($_, 0, $hdrsize << 4) = "";
 die("fatal: REX image too short for MHDR: $infn\n") if length($_) < 0x10;
 die("fatal: REX image too short for eip: $infn\n") if length($_) <= $eip;
+# TODO(pts): Get $text_end_addr, which can be up to 3 bytes smaller than
+# $data_addr because of alignment. This would make the output ELF-32 program
+# file 3 bytes shorter if _DATA is empty (unlikely).
 my($mhdr_signature, $data_addr, $bss_addr, $end_addr) = unpack("a4V3", substr($_, 0, 0x10));
 die("fatal: bad MHDR signature: $infn\n") if $mhdr_signature ne "MHDR";
 die("fatal: bad text alignment: $infn\n") if $text_addr & 3;
