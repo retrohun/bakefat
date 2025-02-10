@@ -128,10 +128,10 @@ typedef long time_t;
 #endif
 
 /* <string.h> */
-void * __cdecl memcpy(void *dest, const void *src, size_t n);
-void * __cdecl memset(void *s, int c, size_t n);
-int __cdecl strcmp(const char *s1, const char *s2);
-int __cdecl strcasecmp(const char *l, const char *r);
+void * __watcall memcpy(void *dest, const void *src, size_t n);
+void * __watcall memset(void *s, int c, size_t n);
+int __watcall strcmp(const char *s1, const char *s2);
+int __watcall strcasecmp(const char *l, const char *r);
 char * __watcall strcpy(char *dest, const char *src);
 size_t __watcall strlen(const char *s);
 

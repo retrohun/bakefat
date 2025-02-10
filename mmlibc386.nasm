@@ -303,10 +303,10 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
-; --- libc string functions.
+; --- libc string functions.  ; !! Convert as many functions as possible from __cdecl to __watcall. Get short implementation from other libcs.
 
-%ifdef __NEED__memcpy  ; !! Convert as many functions as possible from __cdecl to __watcall. Get short implementation from other libcs.
-  global _memcpy
+%ifdef __NEED__memcpy
+  global _memcpy  ; Longer code than memcpy_.
   _memcpy:  ; void * __cdecl memcpy(void *dest, const void *src, size_t n);
 		push edi
 		push esi
@@ -321,8 +321,24 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
+%ifdef __NEED_memcpy_
+  global memcpy_
+  memcpy_:  ; void * __watcall memcpy(void *dest, const void *src, size_t n);
+		push edi
+		xchg esi, edx
+		xchg edi, eax  ; EDI := dest; EAX := junk.
+		xchg ecx, ebx
+		push edi
+		rep movsb
+		pop eax  ; Will return dest.
+		xchg ecx, ebx  ; Restore ECX from REGARG3. And REGARG3 is scratch, we don't care what we put there.
+		xchg esi, edx  ; Restore ESI.
+		pop edi
+		ret
+%endif
+
 %ifdef __NEED__memset
-  global _memset
+  global _memset  ; Longer code than memset_.
   _memset:  ; void * __cdecl memset(void *s, int c, size_t n);
 		push edi
 		mov edi, [esp+8]  ; Argument s.
@@ -335,6 +351,39 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
+%ifdef __NEED_memset_
+  global memset_
+  memset_:  ; void * __watcall memset(void *s, int c, size_t n);
+		push edi  ; Save.
+		xchg edi, eax  ; EDI := EAX (argument s); EAX := junk.
+		xchg eax, edx  ; EAX := EDX (argument c); EDX := junk.
+		xchg ecx, ebx  ; ECX := EBX (argument n); EBX := saved ECX.
+		push edi
+		rep stosb
+		pop eax  ; Result is argument s.
+		xchg ecx, ebx  ; ECX := saved ECX; EBX := 0 (unused).
+		pop edi  ; Restore.
+		ret
+%endif
+
+%ifdef __NEED__strcpy
+  global _strcpy  ; Longer code than strcpy_.
+  _strcpy:  ; char * __cdecl strcpy(char *dest, const char *src);
+		push edi
+		push esi
+		mov edi, [esp+0xc]
+		mov esi, [esp+0x10]
+		push edi
+  .next:	lodsb
+		stosb
+		test al, al
+		jnz strict short .next
+		pop eax  ; Result: pointer to dest.
+		pop esi
+		pop edi
+		ret
+%endif
+
 %ifdef __NEED_strcpy_
   global strcpy_
   strcpy_:  ; char * __watcall strcpy(char *dest, const char *src);
@@ -342,12 +391,27 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		xchg esi, edx
 		xchg eax, edi  ; EDI := dest; EAX := junk.
 		push edi
-  .next3:	lodsb
+  .next:	lodsb
 		stosb
 		test al, al
-		jnz short .next3
+		jnz short .next
 		pop eax  ; Will return dest.
 		xchg esi, edx  ; Restore ESI.
+		pop edi
+		ret
+%endif
+
+%ifdef __NEED__strlen
+  global _strlen  ; Longer code than strlen_.
+  _strlen:  ; size_t __cdecl strlen(const char *s);
+		push edi
+		mov edi, [esp+8]  ; Argument s.
+		xor eax, eax
+		or ecx, byte -1  ; ECX := -1.
+		repne scasb
+		sub eax, ecx
+		dec eax
+		dec eax
 		pop edi
 		ret
 %endif
@@ -359,16 +423,16 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		xchg eax, esi
 		xor eax, eax
 		dec eax
-  .next3:	cmp byte [esi], 1
+  .next:	cmp byte [esi], 1
 		inc esi
 		inc eax
-		jnc short .next3
+		jnc short .next
 		pop esi  ; Restore.
 		ret
 %endif
 
 %ifdef __NEED__strcmp
-  global _strcmp
+  global _strcmp  ; Longer code than strcmp_.
   _strcmp:  ; int __cdecl strcmp(const char *s1, const char *s2);
 		push esi
 		push edi
@@ -376,9 +440,9 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		mov edi, [esp+0x10]  ; s2.
   .5:		lodsb
 		scasb
-		jne .6
+		jne short .6
 		cmp al, 0
-		jne .5
+		jne short .5
 		xor eax, eax
 		jmp short .7
   .6:		sbb eax, eax
@@ -388,18 +452,39 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
+%ifdef __NEED_strcmp_
+  global strcmp_
+  strcmp_:  ; int __watcall strcmp(const char *s1, const char *s2);
+		push esi
+		xchg eax, esi  ; ESI := s1, EAX := junk.
+		xor eax, eax
+		xchg edi, edx
+  .5:		lodsb
+		scasb
+		jne short .6
+		cmp al, 0
+		jne short .5
+		jmp short .7
+  .6:		mov al, 1
+		jnc short .7
+		neg eax
+  .7:		xchg edi, edx  ; Restore original EDI.
+		pop esi
+		ret
+%endif
+
 %ifdef __NEED__strcasecmp
-  global _strcasecmp
+  global _strcasecmp  ; Longer code than strcmp_.
   _strcasecmp:  ; int __cdecl strcasecmp(const char *l, const char *r);
 		push esi
 		push edi
 		mov esi, [esp+3*4]  ; Start of string l.
 		mov edi, [esp+4*4]  ; Start of string r.
-  ; ESI: Start of string l. Will be ruined.
-  ; EDI: Start of string r. Will be ruined.
-  ; ECX: Scratch. Will be ruined.
-  ; EDX: Scratch. Will be ruined.
-  ; EAX: Scratch. The result is returned here.
+		; ESI: Start of string l. Will be ruined.
+		; EDI: Start of string r. Will be ruined.
+		; ECX: Scratch. Will be ruined.
+		; EDX: Scratch. Will be ruined.
+		; EAX: Scratch. The result is returned here.
 		xor eax, eax
 		xor ecx, ecx
   .again:	lodsb
@@ -426,6 +511,49 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		jnz .again
   .return:	pop edi
 		pop esi
+		ret
+%endif
+
+%ifdef __NEED_strcasecmp_
+  global strcasecmp_
+  strcasecmp_:  ; int __watcall strcasecmp(const char *l, const char *r);
+		push ecx  ; Save.
+		push esi  ; Save.
+		push edi  ; Save.
+		xchg esi, eax  ; ESI := start of string l; EAX := junk.
+		xchg edi, edx  ; EDI := start of string r; EDX := junk.
+		; ESI: Start of string l. Will be ruined.
+		; EDI: Start of string r. Will be ruined.
+		; ECX: Scratch. Will be ruined.
+		; EDX: Scratch. Will be ruined.
+		; EAX: Scratch. The result is returned here.
+		xor eax, eax
+		xor ecx, ecx
+  .again:	lodsb
+		mov dh, al
+		sub dh, 'A'
+		cmp dh, 'Z'-'A'
+		mov dl, al
+		ja .2a
+		or al, 0x20
+  .2a:		movzx eax, al
+		mov cl, [edi]
+		inc edi
+		mov dh, cl
+		sub dh, 'A'
+		cmp dh, 'Z'-'A'
+		mov dh, cl
+		ja .2b
+		or cl, 0x20
+  .2b:		sub eax, ecx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
+		jnz .return
+		test dh, dh
+		jz .return
+		test dl, dl
+		jnz .again
+  .return:	pop edi  ; Restore.
+		pop esi  ; Restore.
+		pop ecx  ; Restore.
 		ret
 %endif
 
@@ -606,7 +734,7 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
   .specifier_c:	mov al, bl
 		jmp strict short .write_char
   .no_pad_str:	mov ch, 0
-  .specifier_s:	; Now: AH == 0.
+  .specifier_s:  ; Now: AH == 0.
   .next_str_char:
 		mov al, [ebx]
 		cmp al, 0
