@@ -6,6 +6,9 @@
 #ifndef __WATCOMC__
   #error OpenWatcom C compiler required.
 #endif
+#ifdef __cplusplus
+  #error C compiler required rather than C++.
+#endif
 #ifndef __386__
   #error i386 CPU required.
 #endif
@@ -109,6 +112,11 @@ __extension__ typedef long long loff_t;  /* __extension__ is to make it work wit
 __extension__ typedef long long off64_t;  /* __extension__ is to make it work with `gcc -ansi -pedantic'. */
 typedef unsigned mode_t;
 typedef long time_t;
+
+#define NULL ((void*)0)
+
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1
 
 /* <stdarg.h> */
 #ifndef __GNUC__  /* If always works for __WATCOMC__. For __GNUC__, this is a size optimizatio working on i386 and if the function  taking the `...' arguments is __attribute__((noinline)). */
