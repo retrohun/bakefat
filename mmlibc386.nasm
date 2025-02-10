@@ -507,6 +507,91 @@ mhdr_header:	db 'MHDR'  ; Used by rex2elf.pl.
 		ret
 %endif
 
+; --- libc <ctype.h> functions.
+
+%ifdef __NEED_isalpha_
+  global isalpha_
+  isalpha_:  ; int __watcall isalpha(int c);
+		or al, 0x20
+		sub al, 'a'
+		cmp al, 'z'-'a'+1
+		sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_islower_
+  global islower_
+  islower_:  ; int __watcall islower(int c);
+		sub al, 'a'
+		cmp al, 'z'-'a'+1
+		sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_isupper_
+  global isupper_
+  isupper_:  ; int __watcall isupper(int c);
+		sub al, 'A'
+		cmp al, 'Z'-'A'+1
+		sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_isalnum_
+  global isalnum_
+  isalnum_:  ; int __watcall isalnum(int c);
+		sub al, '0'
+		cmp al, '9'-'0'+1
+		jc short .found
+		add al, '0'
+		or al, 0x20
+		sub al, 'a'
+		cmp al, 'z'-'a'+1
+  .found:	sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_isspace_
+  global isspace_
+  isspace_:  ; int __watcall isspace(int c);
+		sub al, 9  ; '\t'
+		cmp al, 5  ; '\r'-'\t'+1
+		jb short .1
+		sub al, ' '-9
+		cmp al, 1
+  .1:		sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_isdigit_
+  global isdigit_
+  isdigit_:  ; int __watcall isdigit(int c);
+		sub al, '0'
+		cmp al, 10
+		sbb eax, eax
+		neg eax
+		ret
+%endif
+
+%ifdef __NEED_isxdigit_
+  global isxdigit_
+  isxdigit_:  ; int __watcall isxdigit(int c);
+		sub al, '0'
+		cmp al, 10
+		jb short .2
+		or al, 0x20
+		sub al, 'a'-'0'
+		cmp al, 6
+  .2:		sbb eax, eax
+		neg eax
+		ret
+%endif
+
 ; --- libc globals.
 
 %ifdef __NEED__errno
