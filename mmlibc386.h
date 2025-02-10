@@ -110,6 +110,16 @@ __extension__ typedef long long off64_t;  /* __extension__ is to make it work wi
 typedef unsigned mode_t;
 typedef long time_t;
 
+/* <stdarg.h> */
+#ifndef __GNUC__  /* If always works for __WATCOMC__. For __GNUC__, this is a size optimizatio working on i386 and if the function  taking the `...' arguments is __attribute__((noinline)). */
+  typedef char *va_list;
+#  define va_start(ap, last) ((ap) = (char*)&(last) + ((sizeof(last)+3)&~3), (void)0)  /* i386 only. */
+#  define va_arg(ap, type) ((ap) += (sizeof(type)+3)&~3, *(type*)((ap) - ((sizeof(type)+3)&~3)))  /* i386 only. */
+#  define va_copy(dest, src) ((dest) = (src), (void)0)  /* i386 only. */
+#  define va_end(ap) /*((ap) = 0, (void)0)*/  /* i386 only. Adding the `= 0' back doesn't make a difference. */
+#endif
+
+/* <string.h> */
 void * __cdecl memcpy(void *dest, const void *src, size_t n);
 void * __cdecl memset(void *s, int c, size_t n);
 int __cdecl strcmp(const char *s1, const char *s2);
