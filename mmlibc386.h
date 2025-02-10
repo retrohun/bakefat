@@ -135,6 +135,15 @@ int __watcall strcasecmp(const char *l, const char *r);
 char * __watcall strcpy(char *dest, const char *src);
 size_t __watcall strlen(const char *s);
 
+/* <ctype.h> */
+int __watcall isalpha(int c);
+int __watcall islower(int c);
+int __watcall isupper(int c);
+int __watcall isalnum(int c);
+int __watcall isspace(int c);
+int __watcall isdigit(int c);
+int __watcall isxdigit(int c);
+
 __declspec(noreturn) void __watcall exit(int exit_code);
 __declspec(noreturn) void __watcall _exit(int exit_code);
 
