@@ -152,31 +152,31 @@ void __watcall fflush_stdout(void);
 void __watcall maybe_fflush_stdout(void);
 void __watcall printf_void(const char *format, ...);
 
-ssize_t __cdecl read(int fd, void *buf, size_t count);
-ssize_t __cdecl write(int fd, const char *buf, size_t count);
-int __cdecl isatty(int fd);
-int __cdecl open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
+ssize_t __watcall read(int fd, void *buf, size_t count);
+ssize_t __watcall write(int fd, const char *buf, size_t count);
+int __watcall isatty(int fd);
+int __watcall open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
 #if _FILE_OFFSET_BITS == 64
-#  pragma aux open "_open_largefile"
+#  pragma aux open "open_largefile_"
 #endif
-int __cdecl close(int fd);
-int __cdecl unlink(const char *pathname);
-int __cdecl remove(const char *pathname);
-#pragma aux remove "_unlink"  /* Not necessary, the libc defines both. */
+int __watcall close(int fd);
+int __watcall unlink(const char *pathname);
+int __watcall remove(const char *pathname);
+#pragma aux remove "unlink_"  /* Not necessary, the libc defines both. */
 #if _FILE_OFFSET_BITS == 64
-  off64_t __cdecl lseek(int fd, off64_t offset, int whence);
-#  pragma aux lseek "_lseek64"
+  off64_t __watcall lseek(int fd, off64_t offset, int whence);
+#  pragma aux lseek "lseek64_"
 #else
   __off_t __cdecl lseek(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64(...) for 64-bit offset. */
 #endif
-off64_t __cdecl lseek64(int fd, off64_t offset, int whence);
+off64_t __watcall lseek64(int fd, off64_t offset, int whence);
 #if _FILE_OFFSET_BITS == 64
-  int __cdecl ftruncate(int fd, off64_t length);
-#  pragma aux ftruncate "_ftruncate64"
+  int __watcall ftruncate(int fd, off64_t length);
+#  pragma aux ftruncate "ftruncate64_"
 #else
   int __cdecl ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
 #endif
-int __cdecl ftruncate64(int fd, off64_t length);
+int __watcall ftruncate64(int fd, off64_t length);
 
 time_t __cdecl time(time_t *tloc);
 
@@ -193,7 +193,7 @@ extern int stdout_fd;
 
 #ifdef CONFIG_MMLIBC386_INTERNAL_DEFS
   off64_t __cdecl __M_lseek64_linux(int fd, off64_t offset, int whence);
-  int __cdecl __M_fopen_open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
+  int __watcall __M_fopen_open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
   extern int __M_is_freebsd;
 #endif
 

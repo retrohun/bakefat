@@ -46,7 +46,15 @@ if ! "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -o
   echo "fatal: wcc386 failed" >&2
   exit 2
 fi
-"$wlink" op q op start=_cstart_ op noext op nou op nored op d form phar rex disable 1014 ord cln FAR_DATA f "${src%.*}".obj n "$prog".rex >"$prog".wlinkerr 2>&1 || exit_code="$?"
+if test "$os" = win32; then
+  wlinkargs="form win nt ru con=3.10 op h=4K com h=0 op st=1024K com st=64K"  # TODO(pts): Make this configurable.
+  wlinkoutfn="$prog"  # Expected extension: .exe.
+else
+  wlinkargs="form phar rex disable 1014"
+  wlinkoutfn="$prog".rex
+fi
+# !!!                                                          f apack1p.obj n apack1pwl.exe >wlink.err 2>&1 || echo "exit code: $?" >>wlink.err
+"$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "${src%.*}".obj n "$wlinkoutfn" >"$prog".wlinkerr 2>&1 || exit_code="$?"
 test "$exit_code" = 0 && test -s "$prog".wlinkerr && exit_code=-1
 if test "$exit_code" != 0; then
   undefsyms="$(awk '{
@@ -66,18 +74,25 @@ if test "$exit_code" != 0; then
     exit 2
   fi
   # We must put  "$prog".mu.obj first, because of the 'ETXT' at the beginning of section CONST.
-  if ! "$wlink" op q op start=_cstart_ op noext op nou op nored op d form phar rex disable 1014 ord cln FAR_DATA f "$prog".mu.obj f "${src%.*}".obj n "$prog".rex; then
+  if ! "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "$prog".mu.obj f "${src%.*}".obj n "$wlinkoutfn"; then  # !!!
     echo "fatal: wlink2 failed" >&2
     exit 2
   fi
 fi
-if ! "$perl" -x "$mydir"/rex2elf.pl "$prog".rex "$prog"; then
-  echo "fatal: rex2elf failed" >&2
-  exit 2
-fi
-if ! chmod +x "$prog"; then
-  echo "fatal: chmod failed" >&2
-  exit 2
+if test "$os" = win32; then
+  if ! "$perl" -x "$mydir"/fixpe.pl "$prog"; then  # !!! write
+    echo "fatal: fixpe failed" >&2
+    exit 2
+  fi
+else
+  if ! "$perl" -x "$mydir"/rex2elf.pl "$wlinkoutfn" "$prog"; then
+    echo "fatal: rex2elf failed" >&2
+    exit 2
+  fi
+  if ! chmod +x "$prog"; then
+    echo "fatal: chmod failed" >&2
+    exit 2
+  fi
 fi
 # !! Delete temporary files.
 
