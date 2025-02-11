@@ -1,10 +1,22 @@
 ;
-; mmlibc386.nasm; a minimalistic libc implementation for Linux i386 and FreeBSD i386, using the OpenWatcom C compiler
+; mmlibc386.nasm; a minimalistic libc implementation for Linux i386, FreeBSD i386 and Win32, for C programs compiled by the OpenWatcom C compiler (__WATCOMC__)
 ; by pts@fazekas.hu at Sun Feb  9 16:02:03 CET 2025
 ;
 ; Based on https://github.com/pts/minilibc686/blob/3ea27aa40ebf827074155f6271c4399543543a0c/libc/minilibc/sys_freebsd.nasm
 ;
-; Please note that _errno may still be OS-specific.
+; This libc aims for maximum CPU backwards-compatibility (386 instructions
+; only, no 486, 586, 686 or later) and maximum OS backwards-compatibility
+; (Linux >=1.0, FreeBSD >=3.0, Windows NT >=3.1 and Windows >=95). Within
+; that, it aims for small file size (rather than fast execution speed).
+;
+; This libc is minimalistic: it contains little functionality, i.e. a very
+; small subset of the C89 standard library and POSIX. (It also contains some
+; other, useful functions not conforming to any standard.) It is intended
+; for writing new software, rather than porting existing software (with lots
+; of libc function dependencies). For a more full-features libcs, see
+; https://github.com/pts/minilibc686 .
+;
+; Please note that _errno values may still be OS-specific.
 ;
 ; Info: https://alfonsosiciliano.gitlab.io/posts/2021-01-02-freebsd-system-calls-table.html
 ;
