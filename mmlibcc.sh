@@ -25,12 +25,14 @@ wlink="$mydir"/tools/wlink-ow1.8.upx
 #busybox1="$mydir"tools/busybox-minicc-1.21.1.upx  # awk gsub(...) is not buggy here.
 
 os=freebsdx; osd="-DOS_LINUX -DOS_FREEBSD"; oscd="-D__MULTIOS__"
+cdefs=""
 while true; do
   case "$1" in
    -blinux) os=linux; osd="-DOS_LINUX"; oscd="-D__LINUX__ -D__linux -D__linux__ -D__gnu_linux__ -Dlinux" ;;
    -bfreebsd) os=freebsd; osd="-DOS_FREEBSD"; oscd="-D__FREEBSD__ -D__FreeBSD__" ;;
    -bfreebsdx) os=freebsdx; osd="-DOS_LINUX -DOS_FREEBSD"; oscd="-D__MULTIOS__" ;;
    -bwin32) os=win32; osd="-DOS_WIN32"; oscd="-D__NT__ -D_WIN32" ;;
+   -[DU]?*) cdefs="$cdefs $1" ;;  # !! !! TODO(pts): Split on newline only.
    *) break ;;
   esac
   shift
@@ -42,7 +44,7 @@ prog="$2"
 src="$3"
 
 # -of+ == gcc -fno-omit-frame-pointer
-if ! "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj "$src"; then
+if ! "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj $cdefs "$src"; then
   echo "fatal: wcc386 failed" >&2
   exit 2
 fi
