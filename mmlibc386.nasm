@@ -8,6 +8,44 @@
 ;
 ; Info: https://alfonsosiciliano.gitlab.io/posts/2021-01-02-freebsd-system-calls-table.html
 ;
+; Most functions in this libc use the __watcall calling convention, some use
+; __cdecl. The .h file disambiguates it. (__watcall is the default in the .h
+; file.)
+;
+; i386 __watcall calling convention (simplified):
+;
+; * __watcall is the typical __WATCOMC__ (OpenWatcom) default.
+; * If there is an argument longer than 32 bits, or there is a struct
+;   argument, then the following rules don't apply.
+; * If the function accepts a variable number of arguments (i.e. `...`), all
+;   arguments are passed on the stack (first converted to a multiple of 32
+;   bits), last pushed first. Otherwise the first 3 arguments are passed in
+;   EAX, EDX and EBX, respectively, and remaining arguments are passed on
+;   the stack (first converted to a multiple of 32 bits), last pushed first.
+; * The caller cleans up the stack after the call.
+; * Return value is in EAX if pointer or integer at most 32 bits, and
+;   EDX:EAX (EDX is high) for int64_t and uint64_t. If return type is void,
+;   then the callee is allowed to use EAX as a scratch register (i.e. ruin
+;   it).
+; * The callee is allowed to use EDX and/or EBX as a scratch register (i.e.
+;   ruin it) iff it received argument in that register. (Otherwise the
+;   callee has to save and restore the register.)
+;
+; i386 __cdecl calling convention (simplified):
+;
+; * __cdecl is the typical i386 default calling convention (e.g. __GNUC__,
+;   __TINYC__, __PCC__, older SYSV C compilers), except for __WATCOMC__
+;   (OpenWatcom) default and __GNUC__ on the Linux kernel.
+; * If there is a struct argument, then the following rules don't apply.
+; * All arguments are converted to multiple of 32 bits, and then passed on
+;   the stack, last pushed first. For int64_t and uint64_t, the high 32 bits
+;   are pushed first.
+; * The caller cleans up the stack after the call.
+; * Return value is in EAX if pointer or integer at most 32 bits, and
+;   EDX:EAX (EDX is high) for int64_t and uint64_t. If return type is void,
+;   then the callee is allowed to use EAX as a scratch register (i.e. ruin
+;   it).
+;
 
 %define CONFIG_PRINTF_SUPPORT_HEX
 
