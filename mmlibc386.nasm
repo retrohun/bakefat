@@ -265,7 +265,11 @@ section _TEXT
   %define __NEED_simple_syscall3_WAT
 %endif
 %ifdef __NEED_lseek_
-  %define __NEED_simple_syscall3_WAT
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePointer@16
+  %elif __MULTIOS__
+    %define __NEED_simple_syscall3_WAT
+  %endif
 %endif
 %ifdef __NEED_ftruncate_
   %define __NEED_simple_syscall3_WAT
@@ -1404,9 +1408,9 @@ section _TEXT
 ; --- syscalls.
 
 %ifdef __NEED__lseek
-  %ifndef OS_WIN32
+  %ifdef OS_WIN32
     global _lseek
-    _lseek:  ; off_t _lseek(int fd, off_t offset, int whence);
+    _lseek:  ; off_t __cdecl lseek(int fd, off_t offset, int whence);
     %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		jne short .freebsd
@@ -1414,13 +1418,13 @@ section _TEXT
 		jmp short simple_syscall3_AL
       .freebsd:
     %endif
-		push dword [esp+3*4]  ; Argument whence of lseek and sys_freebsd6_lseek.
+		push dword [esp+3*4]  ; Argument whence of lseek and SYS_freebsd6_lseek.
 		mov eax, [esp+3*4]  ; Argument offset of lseek.
 		cdq  ; Sign-extend EAX (32-bit offset) to EDX:EAX (64-bit offset).
-		push edx  ; High dword of argument offset of sys_freebsd6_lseek.
-		push eax  ; Low dword of argument offset of sys_freebsd6_lseek.
-		push eax ; Dummy argument pad of sys_freebsd6_lseek.
-		push dword [esp+5*4]  ; Argument fd of lseek and sys_freebsd6_lseek.
+		push edx  ; High dword of argument offset of SYS_freebsd6_lseek.
+		push eax  ; Low dword of argument offset of SYS_freebsd6_lseek.
+		push eax ; Dummy argument pad of SYS_freebsd6_lseek.
+		push dword [esp+5*4]  ; Argument fd of lseek and SYS_freebsd6_lseek.
 		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		call simple_syscall3_AL
 		test eax, eax
@@ -1429,7 +1433,55 @@ section _TEXT
 		jz short .done
     .bad:	or eax, byte -1  ; Report error unless result fits to 31 bits, unsigned.
 		cdq  ; EDX := -1. Sign-extend EAX (32-bit offset) to EDX:EAX (64-bit offset).
-    .done:	add esp, byte 5*4  ; Clean up arguments of sys_freebsd6_lseek(...) above from the stack.
+    .done:	add esp, byte 5*4  ; Clean up arguments of SYS_freebsd6_lseek(...) above from the stack.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_lseek_
+  global lseek_
+  lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+  %ifdef OS_WIN32
+		push ecx  ; Save.
+		push ebx  ; dwMoveMethod.
+		push byte NULL  ; lpDistanceToMoveHigh.
+		push edx  ; lDistanceToMove.
+		call handle_from_fd  ; EAX --> EAX.
+		push eax  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX. It's OK that EDX is ruined.
+		; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
+		; We want to return -1 in EAX on error, and
+		; INVALID_SET_FILE_POINTER == -1, so we don't have to do any
+		; post-processing.
+		pop ecx  ; Restore.
+		ret
+  %else
+    %ifdef __MULTIOS__
+		cmp byte [___M_is_freebsd], 0
+		jne short .freebsd
+		push byte 19  ; Linux i386 SYS_lseek.
+		jmp short simple_syscall3_WAT
+      .freebsd:
+    %endif
+		push ebx  ; Argument whence of SYS_freebsd6_lseek.
+		xchg ebx, eax  ; EBX := fd; EAX := junk.
+		xchg eax, edx  ; EAX := 32-bit offset; EDX := junk.
+		cdq  ; Sign-extend EAX (32-bit offset) to EDX:EAX (64-bit offset).
+		push edx  ; High dword of argument offset of SYS_freebsd6_lseek.
+		push eax  ; Low dword of argument offset of SYS_freebsd6_lseek.
+		push eax  ; Dummy argument pad of SYS_freebsd6_lseek.
+		push ebx  ; Argument fd of lseek and SYS_freebsd6_lseek.
+		push eax  ; Fake return address of SYS_freebsd6_lseek.
+		xor eax, eax
+		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
+		int 0x80  ; FreeBSD i386 syscall.
+		jnc .ok
+    %ifdef __NEED__errno
+		mov [_errno], eax
+    %endif
+		sbb eax, eax  ; EAX := -1, low dword of indicating error.
+		cdq  ; EDX := -1, high dword of indicating error. Sign-extend EAX (32-bit offset) to EDX:EAX (64-bit offset).
+    .ok:	add esp, byte 6*4  ; Clean up arguments of SYS_freebsd6_lseek(...) above from the stack.
 		ret
   %endif
 %endif
@@ -2104,11 +2156,11 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		ret
       .freebsd:
     %endif
-		push dword [esp+4*4]  ; Argument whence of lseek and sys_freebsd6_lseek.
+		push dword [esp+4*4]  ; Argument whence of lseek and SYS_freebsd6_lseek.
 		push dword [esp+4*4]  ; High dword of argument offset of lseek.
 		push dword [esp+4*4]  ; Low dword of argument offset of lseek.
-		push eax ; Dummy argument pad of sys_freebsd6_lseek.
-		push dword [esp+5*4]  ; Argument fd of lseek and sys_freebsd6_lseek.
+		push eax ; Dummy argument pad of SYS_freebsd6_lseek.
+		push dword [esp+5*4]  ; Argument fd of lseek and SYS_freebsd6_lseek.
 		xor eax, eax
 		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		push eax  ; Dummy return address needed by FreeBSD i386 syscall.

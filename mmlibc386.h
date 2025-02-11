@@ -167,7 +167,7 @@ int __watcall remove(const char *pathname);
   off64_t __watcall lseek(int fd, off64_t offset, int whence);
 #  pragma aux lseek "lseek64_"
 #else
-  __off_t __cdecl lseek(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64(...) for 64-bit offset. */
+  __off_t __watcall lseek(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64(...) for 64-bit offset. */
 #endif
 off64_t __watcall lseek64(int fd, off64_t offset, int whence);
 #if _FILE_OFFSET_BITS == 64
