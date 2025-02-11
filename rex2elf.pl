@@ -22,13 +22,9 @@ for (my $i = 0; $i < @ARGV; ++$i) {
   my $arg = $ARGV[$i];
   if ($arg eq "--") { splice(@ARGV, 0, $i + 1); last }
   elsif ($arg eq "-" or $arg !~ m@^-@) { splice(@ARGV, 0, $i); last }
-  elsif ($arg eq "-mfreebsd" or $arg eq "-mfreebsdx") { $osabi = 9 }  # FreeBSD.
-  elsif ($arg eq "-mlinux") { $osabi = 3 }  # Linux.
-  elsif ($arg eq "-msysv") { $osabi = 0 }  # SYSV.
-# !!
-#  elsif ($arg =~ m@^--apack1p=(.*)@s) { $apack1p_prog = $1; $apack1p_compressor = "apack1p" }
-#  elsif ($arg =~ m@^--upx=(.*)@s) { $upx_prog = $1; $upx_compressor = "upx" }
-#  elsif ($arg =~ m@^--upx-?lzma=(.*)@s) { $upx_prog = $1; $upx_compressor = "upx-lzma" }
+  elsif ($arg eq "-bfreebsd" or $arg eq "-bfreebsdx") { $osabi = 9 }  # FreeBSD.
+  elsif ($arg eq "-blinux") { $osabi = 3 }  # Linux.
+  elsif ($arg eq "-bsysv") { $osabi = 0 }  # SYSV.
   else { die("fatal: unknown command-line flag: $arg\n") }
 }
 die("Usage: $0 [<flag> ...] <input.rex> <output>\n") if @ARGV != 2;

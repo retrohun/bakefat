@@ -87,7 +87,7 @@ if test "$os" = win32; then
     exit 2
   fi
 else
-  if ! "$perl" -x "$mydir"/rex2elf.pl "$wlinkoutfn" "$prog"; then
+  if ! "$perl" -x "$mydir"/rex2elf.pl -b"$os" "$wlinkoutfn" "$prog"; then
     echo "fatal: rex2elf failed" >&2
     exit 2
   fi
