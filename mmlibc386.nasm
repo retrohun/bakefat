@@ -673,7 +673,7 @@ section _TEXT
 		jmp short .8
     .14:	dec edx
 		cmp eax, edx
-		jne .16
+		jne short .16
 		inc edx
     .16:	mov byte [eax], 0x0
 		xchg eax, edx  ; EAX := EDX: EDX := junk.
@@ -867,7 +867,7 @@ section _TEXT
   .next:	lodsb
 		stosb
 		test al, al
-		jnz strict short .next
+		jnz short .next
 		pop eax  ; Result: pointer to dest.
 		pop esi
 		pop edi
@@ -982,7 +982,7 @@ section _TEXT
 		sub dh, 'A'
 		cmp dh, 'Z'-'A'
 		mov dl, al
-		ja .2a
+		ja short .2a
 		or al, 0x20
   .2a:		movzx eax, al
 		mov cl, [edi]
@@ -991,14 +991,14 @@ section _TEXT
 		sub dh, 'A'
 		cmp dh, 'Z'-'A'
 		mov dh, cl
-		ja .2b
+		ja short .2b
 		or cl, 0x20
   .2b:		sub eax, ecx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
-		jnz .return
+		jnz short .return
 		test dh, dh
-		jz .return
+		jz short .return
 		test dl, dl
-		jnz .again
+		jnz short .again
   .return:	pop edi
 		pop esi
 		ret
@@ -1024,7 +1024,7 @@ section _TEXT
 		sub dh, 'A'
 		cmp dh, 'Z'-'A'
 		mov dl, al
-		ja .2a
+		ja short .2a
 		or al, 0x20
   .2a:		movzx eax, al
 		mov cl, [edi]
@@ -1033,14 +1033,14 @@ section _TEXT
 		sub dh, 'A'
 		cmp dh, 'Z'-'A'
 		mov dh, cl
-		ja .2b
+		ja short .2b
 		or cl, 0x20
   .2b:		sub eax, ecx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
-		jnz .return
+		jnz short .return
 		test dh, dh
-		jz .return
+		jz short .return
 		test dl, dl
-		jnz .again
+		jnz short .again
   .return:	pop edi  ; Restore.
 		pop esi  ; Restore.
 		pop ecx  ; Restore.
@@ -1204,7 +1204,7 @@ section _TEXT
   maybe_fflush_stdout_:  ; Outputs: keeps all registers (except EFLAGS) intact.
   %ifdef __NEED__stdout_fd
 		cmp dword [_stdout_fd], byte 2  ; STDERR_FILENO.
-		je .do  ; Flush only stderrr.
+		je short .do  ; Flush only stderrr.
 		ret
     .do:
 		; Fall through to fflush_stdout_.
@@ -1289,12 +1289,12 @@ section _TEXT
   .next_fmt_char:
 		lodsb
 		cmp al, '%'
-		je strict short .specifier
+		je short .specifier
 		cmp al, 0
-		je strict short .done
+		je short .done
   .write_char:	call putchar_ign_
   .j_next_fmt_char:
-		jmp strict short .next_fmt_char
+		jmp short .next_fmt_char
   .done:	popa  ; EAX, EBX, ECX and EDX intactDiscard first 32 bytes of scratch buffer (for %u, %d, %x).
 		popa  ; Discard last  32 bytes of scratch buffer (for %u, %d, %x).
 		popa  ; Restore.
@@ -1309,7 +1309,7 @@ section _TEXT
 		add ch, ah
 		and eax, strict byte 0xf  ; Also AH := 0. Also AL := AL - '0'.
 		add ch, al  ; CH :=  CH * 10 + modifier_digit.
-		jmp strict short .specifier_nxt
+		jmp short .specifier_nxt
   .specifier:	mov ebx, [edi]  ; EDI == Argument of the format specifier.
 		push byte ' '
 		pop ecx  ; CH := 0 (initial value of the number count modifier in the specifier); CL := ' ' (padding char).
@@ -1318,60 +1318,60 @@ section _TEXT
 		push byte 10
 		pop ebp  ; EBP := 10. Base divisor for .number below.
 		cmp byte [esi], '0'
-		jne strict short .specifier_nxt
+		jne short .specifier_nxt
 		inc si
 		mov cl, '0'  ; CL := '0' (default padding char).
   .specifier_nxt:
 		lodsb
 		cmp al, 'l'
-		je strict short .specifier_nxt  ; Ignore modifier 'l'.
+		je short .specifier_nxt  ; Ignore modifier 'l'.
 		cmp al, '-'
-		je strict short .specifier_nxt  ; Ignore modifier '-'.
+		je short .specifier_nxt  ; Ignore modifier '-'.
 		cmp al, 's'
-		je strict short .specifier_s
+		je short .specifier_s
 		cmp al, 'u'
-		je strict short .specifier_u
+		je short .specifier_u
   %ifdef CONFIG_PRINTF_SUPPORT_HEX
 		cmp al, 'x'
-		je strict short .specifier_x
+		je short .specifier_x
   %endif
 		cmp al, 'd'
-		je strict short .specifier_d
+		je short .specifier_d
 		cmp al, 'c'
-		je strict short .specifier_c
+		je short .specifier_c
 		cmp al, '1'
-		jb strict short .specifier_nd
+		jb short .specifier_nd
 		cmp al, '9'
-		jna strict short .modifier_digit
+		jna short .modifier_digit
   .specifier_nd:
 		sub edi, strict byte 4
-		jmp strict short .write_char  ; The specifier '%' is handled implicitly here.
+		jmp short .write_char  ; The specifier '%' is handled implicitly here.
   .specifier_c:	mov al, bl
-		jmp strict short .write_char
+		jmp short .write_char
   .no_pad_str:	mov ch, 0
   .specifier_s:  ; Now: AH == 0.
   .next_str_char:
 		mov al, [ebx]
 		cmp al, 0
-		je strict short .pad_str
+		je short .pad_str
 		cmp ch, ah  ; AH == 0.
-		je strict short .done_dec_ch
+		je short .done_dec_ch
 		dec ch
   .done_dec_ch:	inc ebx
 		call putchar_ign_
-		jmp strict short .next_str_char
+		jmp short .next_str_char
   .pad_str:	mov al, cl  ; AL := padding char.
   .pad_str_next:
 		dec ch
-		js strict short .j_next_fmt_char
+		js short .j_next_fmt_char
 		call putchar_ign_
-		jmp strict short .pad_str_next
+		jmp short .pad_str_next
   %ifdef CONFIG_PRINTF_SUPPORT_HEX
   .specifier_x:	add ebp, byte 0x10-10  ; EBP := 0x10. Base divisor for .number below.
-		jmp strict short .number
+		jmp short .number
   %endif
   .specifier_d:	test ebx, ebx
-		jns strict short .specifier_u
+		jns short .specifier_u
 		neg ebx
 		mov al, '-'
 		call putchar_ign_
@@ -1388,7 +1388,7 @@ section _TEXT
 		xchg eax, edx
 		add al, '0'
 		cmp al, '9'
-		jna strict short .digit_char_ok
+		jna short .digit_char_ok
 		add al, 'a'-('9'+1)
   .digit_char_ok:
 		mov [ebx], al
@@ -1398,13 +1398,13 @@ section _TEXT
 		mov [ebx], dl
   %endif
 		test eax, eax  ; Put next digit to the scratch buffer.
-		jnz strict short .next_digit
+		jnz short .next_digit
   .next_padding:  ; Now: AH == 0.
 		dec ch
-		js strict short .no_pad_str
+		js short .no_pad_str
 		dec ebx
 		mov [ebx], cl  ; Add CL, the padding char.
-		jmp strict short .next_padding
+		jmp short .next_padding
 %endif  ; %ifdef __NEED_printf_void
 
 ; --- syscalls.
@@ -1477,7 +1477,7 @@ section _TEXT
 		xor eax, eax
 		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc .ok
+		jnc short .ok
     %ifdef __NEED__errno
 		mov [_errno], eax
     %endif
@@ -1519,7 +1519,7 @@ section _TEXT
 		pop edx  ; tv_usec (ignored).
 		mov edx, [esp+4]  ; tloc.
 		test edx, edx
-		jz .ret
+		jz short .ret
 		mov [edx], eax
     .ret:	ret
   %endif
@@ -1553,11 +1553,11 @@ section _TEXT
 		mov al, 5  ; FreeBSD i386 and Linux i386 SYS_open.
       %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
-		je .flags_done
+		je short .flags_done
 		lea edx, [esp+2*4]  ; Address of flags argument.
 		; This only fixes the flags with which _fopen(...) calls open(...). The other flags value is O_RDONLY, which doesn't have to be changed.
 		cmp word [edx], 1101o  ; flags: Linux   (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 100o | 1000o).
-		jne .flags_done
+		jne short .flags_done
 		mov word [edx], 0x601  ; flags: FreeBSD (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 0x200 | 0x400) == 0x601. In the SYSV i386 calling convention, it's OK to modify an argument on the stack.
         .flags_done:
       %endif
@@ -1623,7 +1623,7 @@ section _TEXT
 		call _CreateFileA@28  ; Ruins EDX and ECX.
 		pop ecx  ; ECX := slot pointer within fd_handles.
 		cmp eax, byte INVALID_HANDLE_VALUE
-		je .done
+		je short .done
 		mov [ecx], eax  ; Save handle to fd_handles.
 		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
 		sub eax, dword fd_handles
@@ -1639,10 +1639,10 @@ section _TEXT
 		mov edx, [esp+4*4]  ; flags.
       %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
-		je .flags_done
+		je short .flags_done
 		; This only fixes the flags with which _fopen(...) calls open(...). The other flags value is O_RDONLY, which doesn't have to be changed.
 		cmp dx, 1101o  ; flags: Linux   (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 100o | 1000o).
-		jne .flags_done
+		jne short .flags_done
 		mov dx, 0x601  ; flags: FreeBSD (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 0x200 | 0x400) == 0x601. In the SYSV i386 calling convention, it's OK to modify an argument on the stack.
         .flags_done:
       %endif
@@ -1718,7 +1718,7 @@ section _TEXT
       .freebsd:
     %endif
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc .ok
+		jnc short .ok
     %ifdef __NEED__errno
 		mov [_errno], eax
     %endif
@@ -1765,7 +1765,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     %endif
 		push eax  ; Fake return address for FreeBSD i386.
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc .ok
+		jnc short .ok
     %ifdef __NEED__errno
 		mov [_errno], eax
     %endif
@@ -1865,7 +1865,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		cmp eax, byte fd_handles.count
 		jc short .handle_ok
     .bad:	or eax, byte -1
-		jmp short .done  ; !!! Replace all jumps with jmp short, also conditional ones.
+		jmp short .done
     .handle_ok:	xor ecx, ecx
 		xchg ecx, [fd_handles+eax*4]  ; Set handle to NULL in fd_handles, marking it as free for subsequent open(2).
 		push ecx  ; Old handle.
@@ -1961,7 +1961,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 %macro open_common 0  ; Input: EAX: Linux flags; Output: EAX: junk; EDX: FreeBSD flags.
 		mov edx, eax
 		cmp byte [___M_is_freebsd], 0
-		je .flags_done
+		je short .flags_done
 		and edx, byte 3  ; O_ACCMODE.
 		and eax, strict dword ~0x8003  ; ~(O_ACCMODE|O_LARGEFILE).
 		open_test_or al, 0x40, dh, 2  ; O_CREAT.
@@ -2044,7 +2044,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		call _CreateFileA@28  ; Ruins EDX and ECX.
 		pop ecx  ; ECX := slot pointer within fd_handles.
 		cmp eax, byte INVALID_HANDLE_VALUE
-		je .done
+		je short .done
 		mov [ecx], eax  ; Save handle to fd_handles.
 		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
 		sub eax, dword fd_handles
@@ -2122,7 +2122,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		add esp, strict byte 0x2c+3*4  ; Clean up everything pushed.
 		; Now convert result EAX: -1 to 0, everything else to 1. TODO(pts): Can we assume that FreeBSD TIOCGETA returns 0 here?
 		inc eax
-		jz .have_retval
+		jz short .have_retval
 		xor eax, eax
 		inc eax
     .have_retval:
@@ -2141,7 +2141,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		call _GetFileType@4  ;  Ruins EDX and ECX.
 		xor edx, edx
 		cmp eax, byte FILE_TYPE_CHAR
-		jne .done
+		jne short .done
 		inc edx
     .done:	xchg eax, edx  ; EAX := EDX (result: 0 or 1); EDX := junk.
 		pop edx  ; Restore.
@@ -2163,7 +2163,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		add esp, strict byte 0x2c  ; Clean up everything pushed.
 		; Now convert result EAX: -1 to 0, everything else to 1. TODO(pts): Can we assume that FreeBSD TIOCGETA returns 0 here?
 		inc eax
-		jz .have_retval
+		jz short .have_retval
 		xor eax, eax
 		inc eax
     .have_retval:
@@ -2218,7 +2218,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		xchg ecx, eax  ; ECX := argument offset (low word); EAX := junk.
 		push byte -22  ; Linux i386 -EINVAL.
 		pop eax
-		jne .bad_linux  ; Jump iff computed offset high word differs from the actual one.
+		jne short .bad_linux  ; Jump iff computed offset high word differs from the actual one.
 		;mov ebx, [esp+0x14+4]  ; Argument fd. Not needed, it already has that value.
 		mov edx, [esp+0x14+0x10]  ; Argument whence.
 		push byte 19  ; Linux i386 SYS_lseek.
@@ -2342,7 +2342,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push dword [esp+4*4]  ; Argument fd.
 		push eax  ; Fake return address for FreeBSD i386 syscall.
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc .ok
+		jnc short .ok
     %ifdef __NEED__errno
 		mov [_errno], eax
     %endif
@@ -2417,7 +2417,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		js short .done_linux
 		cmp edx, [esp+6*4]  ; High word of argument length.
 		ja short .enosys_linux  ; The caller wants use to shrink the file, this fallback implementation can't do that.
-		jne .grow_linux
+		jne short .grow_linux
 		cmp eax, [esp+5*4]  ; Low word of argument length.
 		ja short .enosys_linux  ; The caller wants use to shrink the file, this fallback implementation can't do that.
 		je short .seek_back_linux
@@ -2425,7 +2425,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		mov edx, [esp+6*4]  ; High word of argument length.
 		mov eax, [esp+5*4]  ; Low word of argument length.
 		dec eax
-		jnz .cont1_linux
+		jnz short .cont1_linux
 		dec edx
       .cont1_linux:
 		push byte 0  ; Argument whence: SEEK_SET.
@@ -2601,7 +2601,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		jle near .18
 		mov ebx, eax
 		cmp dword [_BASE], byte 0
-		jne .7
+		jne short .7
 		mov eax, _end  ; Address after .bss.
 		add eax, 0xfff
 		and eax, ~0xfff
@@ -2609,7 +2609,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		sub edi, byte 3*4  ; Set it back to _BASE.
 		mov eax, 0x10000  ; 64 KiB minimum allocation.
     .9:		add eax, [_BASE]
-		jc .18
+		jc short .18
 		push eax  ; Save new dword [_END] value.
 		mov edx, [_END]
 		sub eax, edx
@@ -2646,7 +2646,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		xor eax, eax
 		mov al, 197  ; FreeBSD i386 SYS_freebsd6_mmap (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc .ok  ; Don't bother setting _errno.
+		jnc short .ok  ; Don't bother setting _errno.
 		xor eax, eax
     .ok:	add esp, byte 9*4  ; Clean up arguments  of SYS_mmap above.
     %ifdef __MULTIOS__
@@ -2654,14 +2654,14 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     %endif
 		cmp eax, edx  ; Compare actual return value (EAX) to expected old dword [_END] value.
 		pop eax  ; Restore new dword [_END].
-		jne .18
+		jne short .18
 		mov [_END], eax
     .7:		mov edx, [_END]
 		mov eax, [_FREE]
 		mov ecx, edx
 		sub ecx, eax
 		cmp ecx, ebx
-		jb .21
+		jb short .21
 		add ebx, eax
 		mov [_FREE], ebx
 		jmp short .done
@@ -2669,7 +2669,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		mov eax, 1<<20  ; 1 MiB.
 		cmp edx, eax
     %ifdef CONFIG_I386
-		jnbe .22
+		jnbe short .22
 		mov eax, edx
       .22:
     %else
@@ -2677,7 +2677,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     %endif  ; else CONFIG_I386
 		add eax, edx
 		test eax, eax  ; ZF=..., SF=..., OF=0.
-		jg .9  ; Jump iff ZF=0 and SF=OF=0. Why is this correct?
+		jg short .9  ; Jump iff ZF=0 and SF=OF=0. Why is this correct?
     .18:	xor eax, eax
     .done:
     %ifdef __MULTIOS__
