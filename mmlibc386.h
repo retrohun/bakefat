@@ -180,12 +180,16 @@ int __watcall ftruncate64(int fd, off64_t length);
 
 time_t __cdecl time(time_t *tloc);
 
-/* Returns an unaligned pointer. There is no API to free it. Suitable for
- * many small allocations. Be careful: if you use this with unaligned
+/* Returns an unaligned pointer or NULL on error. There is no API to free
+ * it. Suitable for many small allocations. If always called with an aligned
+ * `size', then it always returns an aligned address (of the same alignment
+ * as the minimum `size' alignment so far).
+ *
+ * Be careful: if you use this with unaligned
  * sizes, then regular malloc(...) and realloc(...) may also return
  * unaligned pointers.
  */
-void * __cdecl malloc_simple_unaligned(size_t size);
+void * __watcall malloc_simple_unaligned(size_t size);
 
 extern int errno;
 extern char **environ;

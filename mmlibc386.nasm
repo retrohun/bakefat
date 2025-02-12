@@ -221,9 +221,6 @@ section _TEXT
     %define __NEED____M_lseek64_linux
   %endif
 %endif
-%ifdef __NEED__malloc_simple_unaligned
-  %define __NEED_simple_syscall3_AL
-%endif
 %ifdef __NEED_write_
   %ifdef OS_WIN32
     %define __NEED__WriteFile@20
@@ -275,7 +272,9 @@ section _TEXT
   %define __NEED_simple_syscall3_WAT
 %endif
 %ifdef __NEED_malloc_simple_unaligned_
-  %define __NEED_simple_syscall3_WAT
+  %ifdef OS_WIN32
+    %define __NEED__VirtualAlloc@16
+  %endif
 %endif
 %ifdef __NEED_isatty_
   %ifdef OS_WIN32
@@ -2391,7 +2390,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
-%ifdef __NEED__malloc_simple_unaligned
+%ifdef __NEED_malloc_simple_unaligned_
   %ifndef OS_WIN32
     extern _end  ; Set to end of .bss by GNU ld(1).
     PROT:  ; Symbolic constants for Linux and FreeBSD mmap(2).
@@ -2403,43 +2402,108 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .FIXED: equ 0x10
     .ANONYMOUS_LINUX: equ 0x20
     .ANONYMOUS_FREEBSD: equ 0x1000
-    global _malloc_simple_unaligned
-    _malloc_simple_unaligned:  ; void *_malloc_simple_unaligned(size_t size);
-    ; Implemented using sys_brk(2). Equivalent to the following C code, but was
-    ; size-optimized.
-    ;
-    ; A simplistic allocator which creates a heap of 64 KiB first, and then
-    ; doubles it when necessary. It is implemented using Linux system call
-    ; brk(2), exported by the libc as sys_brk(...). free(...)ing is not
-    ; supported. Returns an unaligned address (which is OK on x86).
-    ;
-    ; void *_malloc_simple_unaligned(size_t size) {
-    ;     static char *base, *free, *end;
-    ;     ssize_t new_heap_size;
-    ;     if ((ssize_t)size <= 0) return NULL;  /* Fail if size is too large (or 0). */
-    ;     if (!base) {
-    ;         if (!(base = free = (char*)sys_brk(NULL))) return NULL;  /* Error getting the initial data segment size for the very first time. */
-    ;         new_heap_size = 64 << 10;  /* 64 KiB. */
-    ;         goto grow_heap;  /* TODO(pts): Reset base to NULL if we overflow below. */
-    ;     }
-    ;     while (size > (size_t)(end - free)) {  /* Double the heap size until there is `size' bytes free. */
-    ;         new_heap_size = (end - base) >= (1 << 20) ? (end - base) + (1 << 20) : (end - base) << 1;  /* Double it until 1 MiB. */
-    ;       grow_heap:
-    ;         if ((ssize_t)new_heap_size <= 0 || (size_t)base + new_heap_size < (size_t)base) return NULL;  /* Heap would be too large. */
-    ;         if ((char*)sys_brk(base + new_heap_size) != base + new_heap_size) return NULL;  /* Out of memory. */
-    ;         end = base + new_heap_size;
-    ;     }
-    ;     free += size;
-    ;     return free - size;
-    ; }
-    %define _BASE edi
-    %define _FREE edi+4
-    %define _END edi+8
-    %define _IS_FREEBSD esi
-		mov eax, [esp+4]  ; Argument named size.
-		push ebx  ; Save.
+  %endif
+  global malloc_simple_unaligned_
+  malloc_simple_unaligned_:  ; void * __watcall malloc_simple_unaligned(size_t size);
+  ; A simplistic allocator which creates a heap of 64 KiB first, and then
+  ; doubles it when necessary. It is implemented using mmap(2). Equivalent
+  ; to the following C code (implemented using SYS_brk), but was
+  ; size-optimized. free(...)ing is not supported. Returns an unaligned
+  ; address (which is OK on x86) or NULL on error. If always called with
+  ; an aligned `size', then it always returns an aligned address (of the
+  ; same alignment as the minimum `size' alignment so far).
+  ;
+  ; void *_malloc_simple_unaligned(size_t size) {
+  ;     static char *base, *free, *end;
+  ;     ssize_t new_heap_size;
+  ;     if ((ssize_t)size <= 0) return NULL;  /* Fail if size is too large (or 0). */
+  ;     if (!base) {
+  ;         if (!(base = free = (char*)sys_brk(NULL))) return NULL;  /* Error getting the initial data segment size for the very first time. */
+  ;         new_heap_size = 64 << 10;  /* 64 KiB. */
+  ;         goto grow_heap;  /* TODO(pts): Reset base to NULL if we overflow below. */
+  ;     }
+  ;     while (size > (size_t)(end - free)) {  /* Double the heap size until there is `size' bytes free. */
+  ;         new_heap_size = (end - base) >= (1 << 20) ? (end - base) + (1 << 20) : (end - base) << 1;  /* Double it until 1 MiB. */
+  ;       grow_heap:
+  ;         if ((ssize_t)new_heap_size <= 0 || (size_t)base + new_heap_size < (size_t)base) return NULL;  /* Heap would be too large. */
+  ;         if ((char*)sys_brk(base + new_heap_size) != base + new_heap_size) return NULL;  /* Out of memory. */
+  ;         end = base + new_heap_size;
+  ;     }
+  ;     free += size;
+  ;     return free - size;
+  ; }
+  %define _BASE edi
+  %define _FREE edi+4
+  %define _END edi+8
+  %if 0
+		;add eax, byte  3  ; Align size to dword boundary.
+		;and eax, byte ~3  ; Align size to dword boundary.
+  %endif
 		push edi  ; Save.
-		mov edi, _malloc_simple_base
+		mov edi, _malloc_simple_base  ; Produce shorter code by producing shorter, EDI-based effective addresses.
+  %ifdef OS_WIN32
+		; We use VirtualAlloc. But we don't want to call
+		; VirtualAlloc for each call, because that has lots of
+		; overhead, and it wastes precious XMS handles with
+		; mwpestub. Growing the previously allocated block in place
+		; whenever we can has still too much overhead in mwpestub,
+		; so we allocate memory in 256 KiB blocks, and keep track.
+		push ebx  ; Save.
+		push edx  ; Save.
+		xchg edx, eax  ; EDX := EAX (number of bytes to allocate); EAX := junk.
+    .try_fit:	mov eax, [_BASE]
+		sub eax, [_END]
+		sub [_END], edx
+		jc short .full  ; We actually waste the rest of the current block, but for WASM it's zero waste.
+		add eax, [_FREE]
+		jmp short .done
+    .full:	; Try to allocate new block or extend the current block by at least 256 KiB.
+		; It's possible to extend in Wine, but not with mwpestub.
+		mov ebx, 0x100<<10  ; 256 KiB.
+		cmp ebx, edx
+		jae short .try_alloc
+		mov ebx, edx
+		add ebx,  0xfff
+		and ebx, ~0xfff  ; Round up to multiple of 4096 bytes (page size).
+    .try_alloc:	mov eax, [_BASE]
+		add eax, [_FREE]
+		push ecx  ; Save.
+		push edx  ; Save.
+		push PAGE_READWRITE  ; PAGE_EXECUTE_READWRITE  ; flProtect.
+		push MEM_COMMIT|MEM_RESERVE  ; flAllocationType.
+		push ebx  ; dwSize.
+		push eax  ; lpAddress.
+		call _VirtualAlloc@16  ; Ruins EDX and ECX.
+		pop edx  ; Restore.
+		pop ecx  ; Restore.
+		test eax, eax
+		jz short .no_extend
+		cmp dword [_BASE], byte 0
+		jne short .extended
+		mov [_BASE], eax
+    .extended:	add [_END], ebx
+		add [_FREE], ebx
+		jmp short .try_fit  ; It will fit now.
+    .no_extend:	xor eax, eax
+		cmp [_BASE], eax
+		je short .no_alloc
+		mov [_BASE], eax
+		mov [_FREE], eax
+		mov [_END], eax
+		jmp short .try_alloc  ; Retry with allocating new block.
+    .no_alloc:	shr ebx, 1  ; Try to allocate half as much.
+		cmp ebx, edx
+		jb short .oom  ; Not enough memory for new_amount bytes.
+		cmp ebx, 0xfff
+		ja short .try_alloc  ; Enough memory to for new_amount bytes and also at least a single page.
+    .oom:	xor eax, eax  ; Indicate error as NULL return value.
+    .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+  %else
+    %define _IS_FREEBSD esi
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
     %ifdef __MULTIOS__
 		push esi  ; Save.
 		mov esi, ___M_is_freebsd
@@ -2459,22 +2523,25 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		jc .18
 		push eax  ; Save new dword [_END] value.
 		mov edx, [_END]
-		push edx  ; Save old dword [_END] value.
 		sub eax, edx
 		xor ecx, ecx
     %ifdef __MULTIOS__
 		cmp byte [_IS_FREEBSD], 0
 		jne short .freebsd2
+		push ebx  ; Save.
 		push ecx  ; offset == 0.
 		push strict byte -1 ; fd.
 		push strict byte MAP.PRIVATE|MAP.ANONYMOUS_LINUX|MAP.FIXED  ; flags.
 		push strict byte PROT.READ|PROT.WRITE  ; prot.
 		push eax  ; length. Rounded to page boundary.
 		push edx  ; addr. Rounded to page boundary.
-		push esp  ; buffer, to be passed to sys_mmap(...).
-		mov al, 90  ; Linux i386 SYS_mmap.
-		call simple_syscall3_AL	; It ruins ECX and EDX.
-		add esp, byte 7*4  ; Clean up arguments  of SYS_mmap above.
+		mov ebx, esp  ; buffer, to be passed to sys_mmap(...).
+		push byte 90  ; Linux i386 SYS_mmap.
+		pop eax
+		int 0x80  ; Linux i386 syscall.
+		add esp, byte 6*4  ; Clean up arguments  of SYS_mmap above.
+		pop ebx  ; Restore.
+		; Don't bother setting _errno.
 		jmp short .done2
     %endif
     .freebsd2:  ; caddr_t freebsd6_mmap(caddr_t addr, size_t length, int prot, int flags, int fd, int pad, off_t offset);  /* 197 for FreeBSD. */
@@ -2486,13 +2553,16 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push strict byte PROT.READ|PROT.WRITE  ; Argument prot of freebsd6_mmap.
 		push eax  ; Argument length of freebsd6_mmap. No need to manually round up to page boundary for FreeBSD. But it's rounded anyway.
 		push edx  ; Argument addr of freebsd6_mmap. Rounded to page boundary.
+		push eax  ; Fake return address for FreeBSD i386 syscall.
+		xor eax, eax
 		mov al, 197  ; FreeBSD i386 SYS_freebsd6_mmap (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
-		call simple_syscall3_AL	; It destroys ECX and EDX.
-		add esp, byte 8*4  ; Clean up arguments  of SYS_mmap above.
+		int 0x80  ; FreeBSD i386 syscall.
+		jnc .ok  ; Don't bother setting _errno.
+		xor eax, eax
+    .ok:	add esp, byte 9*4  ; Clean up arguments  of SYS_mmap above.
     %ifdef __MULTIOS__
       .done2:
     %endif
-		pop edx  ; Restore old dword [_END] value.
 		cmp eax, edx  ; Compare actual return value (EAX) to expected old dword [_END] value.
 		pop eax  ; Restore new dword [_END].
 		jne .18
@@ -2519,22 +2589,22 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		add eax, edx
 		test eax, eax  ; ZF=..., SF=..., OF=0.
 		jg .9  ; Jump iff ZF=0 and SF=OF=0. Why is this correct?
-    .18:		xor eax, eax
+    .18:	xor eax, eax
     .done:
     %ifdef __MULTIOS__
 		pop esi  ; Restore.
     %endif
-		pop edi  ; Restore.
+		pop edx  ; Restore.
+		pop ecx  ; Restore.
 		pop ebx  ; Restore.
-		ret
-    %ifdef __NEED__malloc_simple_unaligned
-      section _BSS
-      _malloc_simple_base: resd 1  ; char *base;
-      _malloc_simple_free: resd 1  ; char *free; Must come after _malloc_simple_base.
-      _malloc_simple_end:  resd 1  ; char *end;  Must come after _malloc_simple_end.
-      section _TEXT
-    %endif
   %endif
+		pop edi  ; Restore.
+		ret
+  section _BSS
+  _malloc_simple_base: resd 1  ; char *base;
+  _malloc_simple_free: resd 1  ; char *free; Must come after _malloc_simple_base.
+  _malloc_simple_end:  resd 1  ; char *end;  Must come after _malloc_simple_end.
+  section _TEXT
 %endif
 
 section _BSS  ; Put the 1-aligned entries to the end.
