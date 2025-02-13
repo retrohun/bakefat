@@ -380,7 +380,7 @@ section _TEXT
   ; For _GetLastError@4.
   NO_ERROR equ 0
 
-  ; For _SetFilePosition@16.
+  ; For _SetFilePointer@16.
   INVALID_SET_FILE_POINTER equ -1
 
   ; For _VirtualAlloc@16.
@@ -2490,7 +2490,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		call handle_from_fd  ; EAX --> EAX.
 		xchg ebx, eax  ; EBX := handle; EAX := junk.
 		push byte 1  ; SEEK_CUR.
-		push byte 0  ; lpDistanceToMoveHigh.
+		push byte NULL  ; lpDistanceToMoveHigh.
 		push byte 0  ; lDistanceToMove.
 		push ebx  ; hFile.
 		call _SetFilePointer@16  ; Ruins EDX and ECX.
@@ -2498,7 +2498,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
 		push eax  ; Save old file position.
 		push byte 2  ; SEEK_END.
-		push byte 0  ; lpDistanceToMoveHigh.
+		push byte NULL  ; lpDistanceToMoveHigh.
 		push byte 0  ; lDistanceToMove.
 		push ebx  ; hFile.
 		call _SetFilePointer@16  ; Ruins EDX and ECX.
@@ -2507,7 +2507,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
 		push eax  ; Save file size.
 		push byte 0  ; SEEK_SET.
-		push byte 0  ; lpDistanceToMoveHigh.
+		push byte NULL  ; lpDistanceToMoveHigh.
 		push ecx  ; lDistanceToMove.
 		push ebx  ; hFile.
 		call _SetFilePointer@16  ; Ruins EDX and ECX.
