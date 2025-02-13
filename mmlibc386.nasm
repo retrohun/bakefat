@@ -60,6 +60,7 @@
 ;
 
 %define CONFIG_I386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
+%define CONFIG_FILE_HANDLE_COUNT 32  ; !! Make it configurable. Only OS_WIN32 is affected, others are unlimited.
 %ifdef CONFIG_PRINTF_SUPPORT_HEX
   %if CONFIG_PRINTF_SUPPORT_HEX
   %else
@@ -1204,7 +1205,7 @@ section _TEXT
   %ifdef OS_WIN32
     section _BSS
     ;global fd_handles  ; Not exported to the application.
-    fd_handles: resd 32  ; stdin, stdout, stderr and 29 more Win32 HANDLEs.
+    fd_handles: resd CONFIG_FILE_HANDLE_COUNT  ; stdin, stdout, stderr and 29 more Win32 HANDLEs.
     .end:
     .count: equ ($-fd_handles)>>2
     section _TEXT
@@ -1737,19 +1738,23 @@ section _TEXT
 %endif
 
 %ifdef __NEED_open_
-  %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
-    %define __NEED___M_fopen_open_
-    %undef __NEED_open_
-    global open_
-    open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
+  %ifndef OS_WIN32
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+      %define __NEED___M_fopen_open_
+      %undef __NEED_open_
+      global open_
+      open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
+    %endif
   %endif
 %endif
 %ifdef __NEED_open_largefile_
-  %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
-    %define __NEED___M_fopen_open_
-    %undef __NEED_open_largefile_
-    global open_largefile_
-    open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+  %ifndef OS_WIN32
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+      %define __NEED___M_fopen_open_
+      %undef __NEED_open_largefile_
+      global open_largefile_
+      open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+    %endif
   %endif
 %endif
 %ifdef __NEED___M_fopen_open_
@@ -1768,14 +1773,14 @@ section _TEXT
 		cmp eax, fd_handles.end
 		jne short .next_slot
 		or eax, byte -1
-		jmp short .done  ; Too many open files (2 already open). 2 is enough for aPACK.
+		jmp short .done  ; Too many open files.
       .found_slot:
 		push eax  ; Save.
 		push byte 0  ; hTemplateFile.
 		push dword FILE_ATTRIBUTE_NORMAL  ; dwFlagsAndAttributes. This would also work for reading: FILE_ATTRIBUTE_READONLY, no matter whether the file is read-only. This would also work for writing: FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN.
-		cmp dword [esp+7*4], byte 0  ; flags. Is it O.RDONLY?
+		cmp dword [esp+7*4], byte 0  ; Linux i386 flags. Is it O_RDONLY?
 		je short .rdonly
-		; We assume OWO.WRONLY|OWO.CREAT|OWO.TRUNC. That's true for aPACK.
+		; If not O_RDONLY, then we assume O_WRONLY|O_CREAT|O_TRUNC. That's valid for ___M_fopen_open.
 		push byte CREATE_ALWAYS  ; dwCreationDisposition.
 		push byte 0  ; lpSecurityAttributes.
 		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
@@ -2202,7 +2207,10 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     __M_fopen_open_:  ; int __watcall __M_fopen_open(const char *pathname, int flags, mode_t mode);
   %endif
   %ifdef OS_WIN32
-    ; !!! Extend this: This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC)
+    %ifdef __NEED_open_largefile_
+      global open_largefile_
+      open_largefile_:  ; int __watcall open_largefile_(const char *pathname, int flags, mode_t mode);
+    %endif
 		push ecx  ; Save.
 		push edx  ; Save.
 		mov eax, fd_handles
@@ -2212,28 +2220,28 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		cmp eax, fd_handles.end
 		jne short .next_slot
 		or eax, byte -1
-		jmp short .done  ; Too many open files (2 already open). 2 is enough for aPACK.
+		jmp short .done  ; Too many open files.
     .found_slot:
-		push eax  ; Save.
+		push eax  ; Save slot pointer with fd_handles.
 		push byte 0  ; hTemplateFile.
 		push dword FILE_ATTRIBUTE_NORMAL  ; dwFlagsAndAttributes. This would also work for reading: FILE_ATTRIBUTE_READONLY, no matter whether the file is read-only. This would also work for writing: FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN.
-		cmp dword [esp+7*4], byte 0  ; flags. Is it O.RDONLY?
-		je short .rdonly
-		; We assume OWO.WRONLY|OWO.CREAT|OWO.TRUNC. That's true for aPACK.
-		push byte CREATE_ALWAYS  ; dwCreationDisposition.
-		push byte 0  ; lpSecurityAttributes.
-		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
-		push dword GENERIC_WRITE  ; dwDesiredAccess.
-		jmp short .open
-    .rdonly:	push byte OPEN_EXISTING  ; dwCreationDisposition,.
-		push byte 0  ; lpSecurityAttributes.
-		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
-		push dword GENERIC_READ  ; dwDesiredAccess.
-    .open:	push dword [esp+10*4]  ; lpFileName.
+		mov eax, [esp+7*4]  ; Linux i386 open(2) flags.
+		test eax, eax
+		jz short .rdonly1  ; Jump iff O_RDONLY.
+		push byte CREATE_ALWAYS  ; dwCreationDisposition.  !! Do more.
+		jmp short .done_cd
+    .rdonly1:	push byte OPEN_EXISTING  ; dwCreationDisposition.
+    .done_cd:	push byte 0  ; lpSecurityAttributes.
+		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here. !! First try with FILE_SHARE_DELETE, then fall back to without.
+		and eax, byte 3  ; O_ACCMODE.
+		mov al, [__M_open_flag_bytes+eax]  ; A subset of bitmask (GENERIC_READ|GENERIC_WRITE)>>24.
+		shl eax, 24
+		push eax  ; dwDesiredAccess.
+		push dword [esp+10*4]  ; lpFileName.
 		call _CreateFileA@28  ; Ruins EDX and ECX.
-		pop ecx  ; ECX := slot pointer within fd_handles.
+		pop ecx  ; Restore ECX := slot pointer within fd_handles.
 		cmp eax, byte INVALID_HANDLE_VALUE
-		je short .done
+		je short .done  ; !! If it fails with CREATE_NEW (such as always in WDOSX), check and fail if the file eixsts (GetFileAttributesA returns nonzero), otherwise retry with CREATE_ALWAYS. This is non-reentrant workaround.
 		mov [ecx], eax  ; Save handle to fd_handles.
 		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
 		sub eax, dword fd_handles
@@ -2241,6 +2249,9 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .done:	pop edx  ; Restore.
 		pop ecx  ; Restore.
 		ret
+    section CONST
+    __M_open_flag_bytes: db GENERIC_READ>>24, GENERIC_WRITE>>24, (GENERIC_READ|GENERIC_WRITE)>>24, 0  ; 4 bytes aligned to 4. The last 0 doesn't matter.
+    section _TEXT
   %else
     %ifndef __MULTIOS__
       %error ASSERT_MULTIOS_NEEDED_FOR_OPEN  ; For non-__MULTIOS__, we implement open(2) elsewhere in this file.
