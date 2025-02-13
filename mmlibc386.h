@@ -203,7 +203,7 @@ off64_t __watcall lseek64_growany(int fd, off64_t offset, int whence);
 #endif
 int __watcall ftruncate64(int fd, off64_t length);
 
-time_t __cdecl time(time_t *tloc);
+time_t __watcall time(time_t *tloc);
 
 /* Returns an unaligned pointer or NULL on error. There is no API to free
  * it. Suitable for many small allocations. If always called with an aligned

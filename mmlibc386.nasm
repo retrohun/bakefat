@@ -281,7 +281,6 @@ section _TEXT
   %endif
 %endif
 %ifdef __NEED_time_
-  %define __NEED_simple_syscall3_WAT
 %endif
 %ifdef __NEED_lseek_
   %ifdef OS_WIN32
@@ -1661,7 +1660,7 @@ section _TEXT
 %ifdef __NEED__time
   %ifndef OS_WIN32
     global _time
-    _time:  ; time_t _time(time_t *tloc);
+    _time:  ; time_t __cdecl time(time_t *tloc);
     %ifdef __MULTIOS__  ; Already done.
 		cmp byte [___M_is_freebsd], 0
 		jne short .freebsd
@@ -1692,6 +1691,53 @@ section _TEXT
 		jz short .ret
 		mov [edx], eax
     .ret:	ret
+  %endif
+%endif
+
+%ifdef __NEED_time_
+  %ifndef OS_WIN32
+    global time_
+    time_:  ; time_t __watcall time(time_t *tloc);
+    %ifdef __MULTIOS__  ; Already done.
+		cmp byte [___M_is_freebsd], 0
+		jne short .freebsd
+		push ebx  ; Save.
+		xchg ebx, eax  ; EBX := EAX (syscall argument tloc); EAX := junk.
+		push byte 13  ; Linux i386 SYS_time.
+		pop eax
+		int 0x80  ; Linux i386 syscall. Alternatively, Linux i386 SYS_gettimeofday would also work, but SYS_time may be faster.
+		pop ebx  ; Restore.
+		; We assume that SYS_time always suceeds. A negative return value means a timestamp before 1970.
+		ret
+      .freebsd:
+    %endif
+		push edx  ; Save.
+		push eax  ; Save tloc pointer.
+		push eax  ; tv_usec output.
+		push eax  ; tv_sec output.
+		mov eax, esp
+		push byte 0  ; Argument tz of gettimeofday (NULL).
+		push eax  ; Argument tv of gettimeofday.
+		push eax  ; Fake return address for FreeBSD syscall.
+		push byte 116  ; FreeBSD i386 SYS_gettimeofday.
+		pop eax
+		int 0x80  ; FreeBSD i386 syscall.
+		times 3 pop edx  ; Clean up arguments of SYS_gettimeofday above.
+		jnc short .ok
+    %ifdef __NEED__errno
+		mov [_errno], eax
+    %endif
+		sbb eax, eax  ; EAX := -1, indicating error.
+		add esp, byte 3*4
+		jmp short .done
+    .ok:	pop eax  ; tv_sec.
+		pop edx  ; Ignore tv_usec.
+		pop edx  ; tloc pointer.
+		test edx, edx
+		jz short .done
+		mov [edx], eax
+    .done:	pop edx  ; Restore.
+		ret
   %endif
 %endif
 
