@@ -1511,7 +1511,18 @@ section _TEXT
 		xor eax, eax
 		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		int 0x80  ; FreeBSD i386 syscall.
-		jnc short .ok
+		jc short .bad
+		test edx, edx  ; High dword of position to be returned.
+		jnz short .too_large
+		test eax, eax  ; Low  dword of pisition to be returned.
+		jns short .ok
+    .too_large:
+    %ifdef __NEED__errno
+		push byte 27  ; Linux i386 EFBIG.
+		pop eax
+    %endif
+		stc  ; Fall through to .bad.
+    .bad:
     %ifdef __NEED__errno
 		mov [_errno], eax
     %endif
