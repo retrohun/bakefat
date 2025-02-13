@@ -1856,26 +1856,36 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
+%macro ret_nonzero_as_minus_one_pop_edx_ecx 0  ; Return 0 on nonzero EAX; return -1 otherwise. Pop EDX and ECX before returning. Implement only once.
+  %ifdef rnasmoee
+    jmp short rnasmoee
+  %else
+    %define rnasmoee rnasmoee
+    rnasmoee:	xor edx, edx  ; Will return 0 on success.
+		test eax, eax
+		jnz short .ok
+    .bad:	dec edx  ; Will return -1 on failure.
+    .ok:	xchg eax, edx  ; EAX := EDX (result); EDX := junk.
+		pop edx  ; Restore.
+		pop ecx  ; Restore.
+		ret
+  %endif
+%endm
+
 %ifdef __NEED_close_
   global close_
   close_:  ; int __watcall close(int fd);;
   %ifdef OS_WIN32
 		push ecx  ; Save.
 		push edx  ; Save.
+		xor edx, edx
 		cmp eax, byte fd_handles.count
-		jc short .handle_ok
-    .bad:	or eax, byte -1
-		jmp short .done
-    .handle_ok:	xor ecx, ecx
+		jnc short rnasmoee.bad  ; Jump target works only if EDX == 0.
+		xor ecx, ecx
 		xchg ecx, [fd_handles+eax*4]  ; Set handle to NULL in fd_handles, marking it as free for subsequent open(2).
 		push ecx  ; Old handle.
 		call _CloseHandle@4  ; Ruins EDX and ECX.
-		test eax, eax
-		jz short .bad
-		xor eax, eax
-    .done:	pop edx  ; Restore.
-		pop ecx  ; Restore.
-		ret
+		ret_nonzero_as_minus_one_pop_edx_ecx
   %else
 		push byte 6  ; FreeBSD i386 and Linux i386 SYS_close.
 		jmp short simple_syscall3_WAT
@@ -1917,14 +1927,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push edx  ; Save.
 		push eax  ; Argument pathname.
 		call _DeleteFileA@4  ; Ruins EDX and ECX.
-		xor edx, edx  ; Will return 0 on success.
-		test eax, eax
-		jnz short .ok
-		dec edx  ; Will return -1 on failure.
-    .ok:	xchg eax, edx  ; EAX := EDX (result); EDX := junk.
-		pop edx  ; Restore.
-		pop ecx  ; Restore.
-		ret
+		ret_nonzero_as_minus_one_pop_edx_ecx
   %else
 		push byte 10  ; FreeBSD i386 and Linux i386 SYS_unlink.
 		jmp short simple_syscall3_WAT
