@@ -18,6 +18,7 @@ use strict;
 
 __END__
 
+# !! Move CONST and CONST2 from DGROUP to _TEXT.
 # !! Make PE .exe smaller by making the PE header <=512 bytes and merging .idata to .data
 # !! also make sure that only __imp__ pointers are imported (don't use wlink(1) import).
 

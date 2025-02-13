@@ -84,7 +84,7 @@ die("fatal: bss starts too early: $infn\n") if $bss_addr < $data_addr + 4;
 die("fatal: bad bss end: $infn\n") if $end_addr < $bss_addr;
 my $data_end_addr = length($_);
 die(sprintf("fatal: bad text+data size: length=0x%x bss_addr=0x%x: %s\n", $data_end_addr, $bss_addr, $infn)) if (($data_end_addr + 3) & ~3) != $bss_addr;
-die("fatal: missing ETXT signature: $infn\n") if substr($_, $data_addr, 4) ne "ETXT";
+die("fatal: missing DATA signature: $infn\n") if substr($_, $data_addr, 4) ne "DATA";
 for my $reloc_addr (@reloc_addrs) {
   die("fatal: found 32-bit reloc: $infn\n") if $reloc_addr & 0x80000000;  # This would be a 16-bit reloc.
 }
@@ -108,7 +108,7 @@ for my $reloc_addr (@reloc_addrs) {
   substr($_, $reloc_addr, 4) = pack("V",  $value_addr + $delta);
   $prev_reloc_addr = $reloc_addr;
 }
-substr($_, $data_addr, 4) = "";  # Remove the "ETXT" signature.
+substr($_, $data_addr, 4) = "";  # Remove the "DATA" signature.
 substr($_, 0, $text_addr) = $elfhdr;
 write_file($outfn, $_);
 printf(STDERR "info: converted REX %s (%d bytes) to ELF-32 %s (%d bytes)\n", $infn, $insize, $outfn, length($_));

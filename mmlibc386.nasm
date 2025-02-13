@@ -113,8 +113,8 @@ section _TEXT
 
 %ifndef OS_WIN32
   ; These must be at the beginning of the very first .obj file seen by wlink(1).
-  section CONST
-  etxt_header:	db 'ETXT'  ; Used by rex2elf.pl.
+  section _DATA
+  etxt_header:	db 'DATA'  ; Used by rex2elf.pl.
   section _TEXT
   extern __edata
   extern __end
