@@ -2219,19 +2219,36 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		add eax, byte 4
 		cmp eax, fd_handles.end
 		jne short .next_slot
-		or eax, byte -1
+    .bad:	or eax, byte -1
 		jmp short .done  ; Too many open files.
     .found_slot:
 		push eax  ; Save slot pointer with fd_handles.
+		mov eax, [esp+5*4]  ; Linux i386 open(2) flags. mode will be ignored.
+		test eax, ~0x82c3  ;  (O_ACCMODE|O_CREAT|O_TRUNC|O_EXCL|O_LARGEFILE). Missing: O_APPEND, O_NOCTTY etc.
+		jnz short .bad
 		push byte 0  ; hTemplateFile.
 		push dword FILE_ATTRIBUTE_NORMAL  ; dwFlagsAndAttributes. This would also work for reading: FILE_ATTRIBUTE_READONLY, no matter whether the file is read-only. This would also work for writing: FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN.
-		mov eax, [esp+7*4]  ; Linux i386 open(2) flags.
-		test eax, eax
-		jz short .rdonly1  ; Jump iff O_RDONLY.
-		push byte CREATE_ALWAYS  ; dwCreationDisposition.  !! Do more.
+		push eax  ; Save flags.
+		; dwCreationDisposition := !(flags & O_CREAT) ? ((flags & O_TRUNC) ? TRUNCATE_EXISTING : OPEN_EXISTING) : (flags & O_EXCL) ? CREATE_NEW : (flags & O_TRUNC) ? CREATE_ALWAYS : OPEN_ALWAYS.
+		test al, 0x40  ; O_CREAT.
+		jnz short .creat1
+		test ah, 2  ; O_TRUNC>>8.
+		jnz short .cr0trunc1
+		mov al, OPEN_EXISTING
 		jmp short .done_cd
-    .rdonly1:	push byte OPEN_EXISTING  ; dwCreationDisposition.
-    .done_cd:	push byte 0  ; lpSecurityAttributes.
+    .cr0trunc1:	mov al, TRUNCATE_EXISTING
+		jmp short .done_cd
+    .creat1:	test al, 0x80  ; O_EXCL.
+		jz short .excl0
+		mov al, CREATE_NEW
+		jmp short .done_cd
+    .excl0:	test ah, 2  ; O_TRUNC>>8.
+		mov al, CREATE_ALWAYS
+		jnz short .done_cd
+		mov al, OPEN_ALWAYS
+    .done_cd:	movzx eax, al
+		xchg eax, [esp]  ; EAX := old flags; dword [ESP] := dwCreationDisposition.
+		push byte 0  ; lpSecurityAttributes.
 		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here. !! First try with FILE_SHARE_DELETE, then fall back to without.
 		and eax, byte 3  ; O_ACCMODE.
 		mov al, [__M_open_flag_bytes+eax]  ; A subset of bitmask (GENERIC_READ|GENERIC_WRITE)>>24.
