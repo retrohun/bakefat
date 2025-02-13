@@ -199,7 +199,7 @@ off64_t __watcall lseek64_growany(int fd, off64_t offset, int whence);
   int __watcall ftruncate(int fd, off64_t length);
 #  pragma aux ftruncate "ftruncate64_"
 #else
-  int __cdecl ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
+  int __watcall ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
 #endif
 int __watcall ftruncate64(int fd, off64_t length);
 

@@ -305,7 +305,6 @@ section _TEXT
   %endif
 %endif
 %ifdef __NEED_ftruncate_
-  %define __NEED_simple_syscall3_WAT
 %endif
 %ifdef __NEED_malloc_simple_unaligned_
   %ifdef OS_WIN32
@@ -447,7 +446,7 @@ section _TEXT
 		push ecx  ; Argument buf of FreeBSD SYS_write.
 		or ebx, byte -1  ; Argument fd of Linux i386 SYS_write.
 		push ebx  ; Argument fd of FreeBSD SYS_write.
-		push eax  ; Fake return address of FreeBSD syscall.
+		push eax  ; Fake return address for FreeBSD syscall.
 		int 0x80  ; Linux i386 and FreeBSD i386 syscall. It fails because of the negative fd.
 		add esp, byte 4*4  ; Clean up syscall arguments above.
     %ifdef __MULTIOS__  ; Set by minicc.sh if Linux support is needed in addition to FreeBSD.
@@ -560,7 +559,7 @@ section _TEXT
   %ifdef OS_WIN32
 		call _ExitProcess@4  ; Doesn't return.
   %else
-		push eax  ; Fake return address for FreeBSD i386.
+		push eax  ; Fake return address for FreeBSD i386 syscall.
     %ifdef __MULTIOS__
 		xchg ebx, eax  ; EBX := EAX (exit_code); EAX := junk. Linux i386 syscall needs the 1st argument in EBX. FreeBSD i386 needs it in [esp+4].
     %endif
@@ -1526,7 +1525,7 @@ section _TEXT
 		push eax  ; Low dword of argument offset of SYS_freebsd6_lseek.
 		push eax  ; Dummy argument pad of SYS_freebsd6_lseek.
 		push ebx  ; Argument fd of lseek and SYS_freebsd6_lseek.
-		push eax  ; Fake return address of SYS_freebsd6_lseek.
+		push eax  ; Fake return address for SYS_freebsd6_lseek.
 		xor eax, eax
 		mov al, 199  ; FreeBSD SYS_freebsd6_lseek (also available in FreeBSD 3.0, released on 1998-10-16), with 64-bit offset.
 		int 0x80  ; FreeBSD i386 syscall.
@@ -1836,7 +1835,7 @@ section _TEXT
 %ifdef __NEED__ftruncate
   %ifndef OS_WIN32
     global _ftruncate
-    _ftruncate:  ; int _ftruncate(int fd, off_t length);
+    _ftruncate:  ; int __cdecl ftruncate(int fd, off_t length);
     %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		jne short .freebsd
@@ -1855,6 +1854,51 @@ section _TEXT
 		call simple_syscall3_AL
 		add esp, byte 4*4  ; Clean up arguments above.
 		ret
+  %endif
+%endif
+
+%ifdef __NEED_ftruncate_
+  %ifndef OS_WIN32
+    global ftruncate_
+    ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
+    %ifdef __MULTIOS__
+		cmp byte [___M_is_freebsd], 0
+		jne short .freebsd
+		push ebx  ; Save.
+		push ecx  ; Save.
+		xchg ebx, eax  ; EBX := EAX (argument fd); EAX := junk.
+		mov ecx, edx  ; ECX := EDX (argument length).
+		push byte 93  ; Linux i386 SYS_ftruncate. Supported on Linux >=1.0.
+		pop eax
+		int 0x80  ; Linux i386 syscall.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		neg eax
+		jz short .ret
+		jmp short .bad
+      .freebsd:
+    %endif
+		test edx, edx
+		js short .negative
+		push byte 0  ; High dword of syscall argument length.
+		jmp short .done_high
+    .negative:	push byte -1  ; High dword of syscall argument length.
+    .done_high:	push edx  ; Low dword of syscall argument length.
+		push eax  ; Arbitrary pad value for FreeBSD SYS_ftruncate.
+		push eax  ; Syscall argument fd.
+		push eax  ; Fake return address for FreeBSD syscall.
+		xor eax, eax
+		;mov eax, 130  ; FreeBSD old ftruncate(2) with 32-bit offset. int ftruncate(int fd, long length); }.
+		mov al, 201  ; FreeBSD ftruncate(2) with 64-bit offset. FreeBSD 3.0 already had it. int ftruncate(int fd, int pad, off_t length); }
+		int 0x80  ; FreeBSD i386 syscall.
+		lea esp, [esp+5*4]  ; Clean up arguments above.
+		jnc short .ret
+    .bad:
+      %ifdef __NEED__errno
+		mov [_errno], eax
+      %endif
+		or eax, byte -1  ; EAX := -1.
+    .ret:	ret
   %endif
 %endif
 
@@ -1934,7 +1978,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		jmp short .done
       .freebsd:
     %endif
-		push eax  ; Fake return address for FreeBSD i386.
+		push eax  ; Fake return address for FreeBSD i386 syscall.
 		int 0x80  ; FreeBSD i386 syscall.
 		jnc short .ok
     %ifdef __NEED__errno
