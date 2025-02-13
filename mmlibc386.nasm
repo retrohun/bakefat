@@ -286,6 +286,13 @@ section _TEXT
     %define __NEED_lseek_growany_
   %endif
 %endif
+%ifdef __NEED_filelength_
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePointer@16
+  %else
+    %define __NEED_lseek_growany_
+  %endif
+%endif
 %ifdef __NEED_lseek_growany_
   %ifdef OS_WIN32
     %define __NEED__SetFilePointer@16
@@ -2300,6 +2307,83 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .have_retval:
 		pop edx  ; Restore.
 		pop ebx  ; Restore.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_filelength_
+  global filelength_  ; This is not POSIX, but it is part of the OpenWatcom libc, and it is useful.
+  filelength_:  ; __off_t __watcall filelength(int fd);
+  %ifdef OS_WIN32  ; The other implementation below (using lseek_growany_) would also work, but this one is shorter.
+		push ecx  ; Save.
+		push ebx  ; Save.
+		push edx  ; Save.
+		call handle_from_fd  ; EAX --> EAX.
+		xchg ebx, eax  ; EBX := handle; EAX := junk.
+		push byte 1  ; SEEK_CUR.
+		push byte 0  ; lpDistanceToMoveHigh.
+		push byte 0  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		push eax  ; Save old file position.
+		push byte 2  ; SEEK_END.
+		push byte 0  ; lpDistanceToMoveHigh.
+		push byte 0  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		pop ecx  ; Restore old file position to ECX (offset).
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		push eax  ; Save file size.
+		push byte 0  ; SEEK_SET.
+		push byte 0  ; lpDistanceToMoveHigh.
+		push ecx  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		pop ecx  ; Restore file size.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		xchg eax, ecx  ; EAX := ECX (file size); ECX := junk.
+		jmp short .done
+    .bad:	or eax, byte -1
+    .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+		pop ecx  ; Restore.
+		ret
+  %else
+		push ecx  ; Save.
+		push ebx  ; Save.
+		push edx  ; Save.
+		xor ebx, ebx
+		inc ebx  ; EBX := whence := SEEK.CUR.
+		xor edx, edx  ; EDX := offset := 0.
+		mov ecx, eax  ; Save fd.
+		call lseek_growany_
+		test eax, eax
+		js short .done
+		push eax  ; Save old file position.
+		mov eax, ecx ; fd.
+		push byte 2  ; SEEK_END.
+		pop ebx  ; EBX := whence := SEEK_END.
+		xor edx, edx  ; EDX := offset := 0
+		mov eax, ecx ; fd.
+		call lseek_growany_
+		test eax, eax
+		pop edx  ; Restore old file position to EDX (offset).
+		js short .done
+		push eax  ; Save file size.
+		xor ebx, ebx  ; EBX := whence := SEEK_SET.
+		mov eax, ecx ; fd.
+		call lseek_growany_
+		test eax, eax
+		pop ecx  ; Restore file size.
+		js short .done
+		xchg eax, ecx  ; EAX := ECX (file size); ECX := junk.
+    .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+		pop ecx  ; Restore.
 		ret
   %endif
 %endif

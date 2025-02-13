@@ -166,6 +166,7 @@ int __watcall unlink(const char *pathname);
 int __watcall remove(const char *pathname);
 #pragma aux remove "unlink_"  /* Not necessary, the libc defines both. */
 int __watcall rename(const char *oldpath, const char *newpath);
+__off_t __watcall filelength(int fd);  /* Not POSIX, but part of OpenWatcom libc. No 64-bit version provided (yet). */
 #if _FILE_OFFSET_BITS == 64
   off64_t __watcall lseek(int fd, off64_t offset, int whence);
 #  pragma aux lseek "lseek64_"
