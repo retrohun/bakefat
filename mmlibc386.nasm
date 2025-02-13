@@ -213,6 +213,9 @@ section _TEXT
 %ifdef __NEED__ftruncate
   %define __NEED_simple_syscall3_AL
 %endif
+%ifdef __NEED_filelength64_
+  %define __NEED_lseek64_growany_
+%endif
 %ifdef __NEED_lseek64_
   %ifdef OS_WIN32
     %define __NEED_lseek64_growany_
@@ -1546,6 +1549,54 @@ section _TEXT
     .ok:	add esp, byte 6*4  ; Clean up arguments of SYS_freebsd6_lseek(...) above from the stack.
 		ret
   %endif
+%endif
+
+%ifdef __NEED_filelength64_
+  global filelength64_  ; This is not POSIX, but it is part of the OpenWatcom libc, and it is useful.
+  filelength64_:  ; off64_t __watcall filelength64(int fd);
+		push esi  ; Save.
+		push edi  ; Save.
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		xor edx, edx
+		inc edx  ; EDX := whence := SEEK.CUR.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := offset := 0.
+		mov edi, eax  ; Save fd.
+		call lseek64_growany_
+		test edx, edx
+		js short .done
+		push eax
+		push edx  ; Save old file position (EDX:EAX).
+		mov eax, edi ; fd.
+		push byte 2  ; SEEK_END.
+		pop edx  ; EDX := whence := SEEK_END.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := offset := 0
+		mov eax, edi ; fd.
+		call lseek64_growany_
+		test edx, edx
+		pop ecx
+		pop ebx  ; Restore old file position to ECX:EBX (offset).
+		js short .done
+		push eax
+		push edx  ; Save file size (EDX:EAX).
+		xor edx, edx  ; EDX := whence := SEEK_SET.
+		mov eax, edi ; fd.
+		call lseek64_growany_
+		test edx, edx
+		pop esi
+		pop edi  ; Restore file size (ESI:EDI).
+		js short .done
+		mov edx, esi
+		xchg eax, edi  ; EDX:EAX := ESI:EDI (file size); EDI := junk.
+    .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		pop edi  ; Restore.
+		pop esi  ; Restore.
+		ret
 %endif
 
 %ifdef __NEED_lseek_
