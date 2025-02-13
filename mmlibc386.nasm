@@ -304,6 +304,10 @@ section _TEXT
   %endif
 %endif
 %ifdef __NEED_ftruncate_
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePosition@16
+    %define __NEED__SetEndOfFile@4
+  %endif
 %endif
 %ifdef __NEED_malloc_simple_unaligned_
   %ifdef OS_WIN32
@@ -801,6 +805,10 @@ section _TEXT
 %ifdef __NEED__SetFilePointer@16
   extern _SetFilePointer@16
   import _SetFilePointer@16 kernel32.dll SetFilePointer
+%endif
+%ifdef __NEED__SetEndOfFile@4
+  extern _SetEndOfFile@4
+  import _SetEndOfFile@4 kernel32.dll SetEndOfFile
 %endif
 %ifdef __NEED__GetLastError@4
   extern _GetLastError@4
@@ -1624,7 +1632,7 @@ section _TEXT
 		cmp eax, byte -1  ; INVALID_SET_FILE_POINTER.
 		jne short .done
 		push eax  ; Save.
-		call _GetLastError@4
+		call _GetLastError@4  ; Ruins EDX and ECX.
 		test eax, eax
 		pop eax  ; Restore.
 		jz short .done  ; Jump iff NO_ERROR (== 0).
@@ -1904,9 +1912,53 @@ section _TEXT
 %endif
 
 %ifdef __NEED_ftruncate_
-  %ifndef OS_WIN32
-    global ftruncate_
-    ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
+  global ftruncate_
+  ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
+  %ifdef OS_WIN32
+		push ecx  ; Save.
+		push ebx  ; Save.
+		push edx  ; Save.
+		push edx  ; Save length.
+		call handle_from_fd  ; EAX --> EAX.
+		xchg ebx, eax  ; EBX := handle; EAX := junk.
+		push byte 1  ; SEEK_CUR.
+		push byte NULL  ; lpDistanceToMoveHigh.
+		push byte 0  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		pop ecx  ; Restore ECX := length.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		push eax  ; Save original position.
+		push byte 0  ; SEEK_SET.
+		push byte NULL  ; lpDistanceToMoveHigh.
+		push ecx  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		pop ecx  ; Restore ECX := original position.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		push ecx  ; Save original position.
+		push ebx  ; hFile.
+		call _SetEndOfFile@4  ; Ruins EDX and ECX. !!! Fill the new bytes with NUL bytes on Windows 95.
+		pop ecx  ; Restore ECX := original position.
+		test eax, eax
+		jz short .bad
+		push byte 0  ; SEEK_SET.
+		push byte NULL  ; lpDistanceToMoveHigh.
+		push ecx  ; lDistanceToMove.
+		push ebx  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		xor eax, eax  ; Indicate success in return value.
+		jmp short .done
+    .bad:	or eax, byte -1
+    .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+		pop ecx  ; Restore.
+		ret
+  %else
     %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		jne short .freebsd
