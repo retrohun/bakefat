@@ -90,6 +90,8 @@
 #define O_NOCTTY 0400
 #define O_APPEND 02000
 #define O_LARGEFILE 0100000
+/* For compatibility with Win32 and DOS. */
+#define O_BINARY 0
 
 typedef unsigned char uint8_t;
 typedef signed char int8_t;
