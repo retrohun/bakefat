@@ -1311,7 +1311,6 @@ section _TEXT
   %endif
   ; Format specifiers supported: %%, %s, %c, %u, %lu (l is ignored), %d, %x (disabled by default), %05u (also without 0), %3d (for nonnegative only, also without 0), %-25s (for negative only).
   ; Maximum size modifier (e.g. %42u) is 63 for numbers (%63u, larger value crashes) and 128 for strings (%-128s, larger value produces incorrect output).
-  %undef CONFIG_PRINTF_SUPPORT_HEX  ; Not needed in aPACK.
 		pusha  ; Save.
 		pusha  ; Make room for last  32 bytes of scratch buffer (for %u, %d, %x).
 		pusha  ; Make room for first 32 bytes of scratch buffer (for %u, %d, %x).
