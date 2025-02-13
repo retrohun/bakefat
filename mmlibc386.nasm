@@ -60,7 +60,14 @@
 ;
 
 %define CONFIG_I386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
-%define CONFIG_PRINTF_SUPPORT_HEX
+%ifdef CONFIG_PRINTF_SUPPORT_HEX
+  %if CONFIG_PRINTF_SUPPORT_HEX
+  %else
+    %undef CONFIG_PRINTF_SUPPORT_HEX
+  %endif
+%else
+  %define CONFIG_PRINTF_SUPPORT_HEX  ; printf format specifier `%x' enabled by default. (`%X' isn't.)
+%endif
 
 %ifndef OS_LINUX
   %ifndef OS_FREEBSD
