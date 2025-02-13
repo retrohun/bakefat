@@ -1375,8 +1375,10 @@ section _TEXT
 		cmp al, '9'
 		jna short .modifier_digit
   .specifier_nd:
+		cmp al, '%'
+		jne short .done  ; It's safer to stop printing at an unrecognized specifier than risking segfault because of future specifier mismatches.
 		sub edi, strict byte 4
-		jmp short .write_char  ; The specifier '%' is handled implicitly here.
+		jmp short .write_char
   .specifier_c:	mov al, bl
 		jmp short .write_char
   .no_pad_str:	mov ch, 0
