@@ -207,8 +207,18 @@ section _TEXT
   %define __NEED_simple_syscall3_AL
 %endif
 %ifdef __NEED_lseek64_
-  %ifndef OS_WIN32
-    %define __NEED__lseek64
+  %ifdef OS_WIN32
+    %define __NEED_lseek64_growany_
+  %else
+    %define __NEED_lseek64_growany_
+  %endif
+%endif
+%ifdef __NEED_lseek64_growany_
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePointer@16
+    %define __NEED__GetLastError@4
+  %elifdef __MULTIOS__
+    %define __NEED__lseek64_growany
   %endif
 %endif
 %ifdef __NEED_ftruncate64_
@@ -264,8 +274,15 @@ section _TEXT
 %endif
 %ifdef __NEED_lseek_
   %ifdef OS_WIN32
+    %define __NEED_lseek_growany_
+  %else
+    %define __NEED_lseek_growany_
+  %endif
+%endif
+%ifdef __NEED_lseek_growany_
+  %ifdef OS_WIN32
     %define __NEED__SetFilePointer@16
-  %elif __MULTIOS__
+  %elifdef __MULTIOS__
     %define __NEED_simple_syscall3_WAT
   %endif
 %endif
@@ -343,6 +360,9 @@ section _TEXT
 
   INVALID_HANDLE_VALUE equ -1
   NULL equ 0
+
+  ; For _GetLastError@4.
+  NO_ERROR equ 0
 
   ; For _SetFilePosition@16.
   INVALID_SET_FILE_POINTER equ -1
@@ -765,6 +785,10 @@ section _TEXT
 %ifdef __NEED__SetFilePointer@16
   extern _SetFilePointer@16
   import _SetFilePointer@16 kernel32.dll SetFilePointer
+%endif
+%ifdef __NEED__GetLastError@4
+  extern _GetLastError@4
+  import _GetLastError@4 kernel32.dll GetLastError
 %endif
 %ifdef __NEED__VirtualAlloc@16
   extern _VirtualAlloc@16
@@ -1447,22 +1471,25 @@ section _TEXT
   %endif
 %endif
 
-%ifdef __NEED_lseek_
-  global lseek_
-  lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+%ifdef __NEED_lseek_growany_
+  global lseek_growany_  ; Like POSIX lseek(2), but if it has to grow the file after the seek, the new bytes can contain anything, not only NUL. DOS and Windows 95 adds arbitrary values, POSIX and Windows NT adds NULs.
+  lseek_growany_:  ; off_t __watcall lseek_growany(int fd, off_t offset, int whence);
   %ifdef OS_WIN32
 		push ecx  ; Save.
 		push ebx  ; dwMoveMethod.
-		push byte NULL  ; lpDistanceToMoveHigh.
+		push byte NULL  ; lpDistanceToMoveHigh. _SetFilePointer@16 will fail if the new position doesn't fit to 32 bits.
 		push edx  ; lDistanceToMove.
 		call handle_from_fd  ; EAX --> EAX.
 		push eax  ; hFile.
 		call _SetFilePointer@16  ; Ruins EDX and ECX. It's OK that EDX is ruined.
-		; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
 		; We want to return -1 in EAX on error, and
-		; INVALID_SET_FILE_POINTER == -1, so we don't have to do any
-		; post-processing.
-		pop ecx  ; Restore.
+		; INVALID_SET_FILE_POINTER == -1. We also want to treat
+		; any negative return value as an error here (and replace it
+		; with -1), because off_t can't represent positions >=(1>>31).
+		test eax, eax
+		jns short .done
+		or eax, byte -1
+    .done:	pop ecx  ; Restore.
 		ret
   %else
     %ifdef __MULTIOS__
@@ -1492,6 +1519,65 @@ section _TEXT
 		cdq  ; EDX := -1, high dword of indicating error. Sign-extend EAX (32-bit offset) to EDX:EAX (64-bit offset).
     .ok:	add esp, byte 6*4  ; Clean up arguments of SYS_freebsd6_lseek(...) above from the stack.
 		ret
+  %endif
+%endif
+
+%ifdef __NEED_lseek_
+  global lseek_
+  ;lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+  %ifdef OS_WIN32
+    lseek_: equ lseek_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
+  %else
+    lseek_: equ lseek_growany_
+  %endif
+%endif
+
+%ifdef __NEED_lseek64_growany_
+  global lseek64_growany_
+  lseek64_growany_:  ; off64_t __watcall lseek64_growany(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
+  %ifdef OS_WIN32
+		push ecx  ; lDistanceToMoveHigh.
+		push edx  ; dwMoveMethod.
+		push esp  ; lpDistanceToMoveHigh. Initially points to dwMoveMethod.
+		add dword [esp], byte 4  ; Make lpDistanceToMoveHigh point to lDistanceToMoveHigh.
+		push ebx  ; lDistanceToMove.
+		call handle_from_fd  ; EAX --> EAX.
+		push eax  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX. It's OK that EDX is ruined.
+		pop edx  ; lDistanceToMoveHigh.
+		cmp eax, byte -1  ; INVALID_SET_FILE_POINTER.
+		jne short .done
+		push eax  ; Save.
+		call _GetLastError@4
+		test eax, eax
+		pop eax  ; Restore.
+		jz short .done  ; Jump iff NO_ERROR (== 0).
+		; We want to treat any negative return value as an error
+		; here (and replace it with -1), because off64_t can't
+		; represent positions >=(1>>63).
+		test edx, edx
+		jns short .done
+		or eax, byte -1  ; EAX := -1 (indicating error).
+		cdq  ; EDX:EAX ;= -1 (indicating error).
+    .done:	ret
+  %else
+		push edx
+		push ecx
+		push ebx
+		push eax
+		call _lseek64_growany  ; It's simpler to call it here than to change the ABI of it and its dependencies.
+		add esp, byte 4*4  ; Clean up arguments of _lseek64_growany above.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_lseek64_
+  global lseek64_
+  ;lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
+  %ifdef OS_WIN32
+    lseek64_: equ lseek64_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
+  %else
+    lseek64_: equ lseek64_growany_
   %endif
 %endif
 
@@ -1534,7 +1620,7 @@ section _TEXT
 
 %ifdef __NEED__open
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED____M_fopen_open
       %undef __NEED__open
       global _open
@@ -1544,7 +1630,7 @@ section _TEXT
 %endif
 %ifdef __NEED__open_largefile
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED____M_fopen_open
       %undef __NEED__open_largefile
       global _open_largefile
@@ -1574,23 +1660,19 @@ section _TEXT
 %endif
 
 %ifdef __NEED_open_
-  %ifndef OS_WIN32
-    %ifndef __MULTIOS__
-      %define __NEED___M_fopen_open_
-      %undef __NEED_open_
-      global open_
-      open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
-    %endif
+  %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %define __NEED___M_fopen_open_
+    %undef __NEED_open_
+    global open_
+    open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
   %endif
 %endif
 %ifdef __NEED_open_largefile_
-  %ifndef OS_WIN32
-    %ifndef __MULTIOS__
-      %define __NEED___M_fopen_open_
-      %undef __NEED_open_largefile_
-      global open_largefile_
-      open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
-    %endif
+  %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %define __NEED___M_fopen_open_
+    %undef __NEED_open_largefile_
+    global open_largefile_
+    open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
   %endif
 %endif
 %ifdef __NEED___M_fopen_open_
@@ -2203,24 +2285,10 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
-%ifdef __NEED_lseek64_
+%ifdef __NEED__lseek64_growany
   %ifndef OS_WIN32
-    global lseek64_
-    lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
-		push edx
-		push ecx
-		push ebx
-		push eax
-		call _lseek64  ; It's simpler to call it here than to change the ABI of it and its dependencies.
-		add esp, byte 4*4  ; Clean up arguments of _lseek64 above.
-		ret
-  %endif
-%endif
-
-%ifdef __NEED__lseek64
-  %ifndef OS_WIN32
-    global _lseek64
-    _lseek64:  ; off64_t __cdecl lseek64(int fd, off64_t offset, int whence);
+    global _lseek64_growany
+    _lseek64_growany:  ; off64_t __cdecl lseek64_growany(int fd, off64_t offset, int whence);
     %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		jne short .freebsd

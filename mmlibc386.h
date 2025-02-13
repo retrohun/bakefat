@@ -170,7 +170,22 @@ int __watcall rename(const char *oldpath, const char *newpath);
 #else
   __off_t __watcall lseek(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64(...) for 64-bit offset. */
 #endif
+/* After this seek if there is a successful write. the bytes between the previous EOF and the newly written data will be zero-filled. */
 off64_t __watcall lseek64(int fd, off64_t offset, int whence);
+#if _FILE_OFFSET_BITS == 64
+  off64_t __watcall lseek_growany(int fd, off64_t offset, int whence);
+#  pragma aux lseek_growany "lseek64_growany_"
+#else
+  __off_t __watcall lseek_growany(int fd, __off_t offset, int whence);  /* 32-bit offset. See lseek64_growany(...) for 64-bit offset. */
+#endif
+/* After this seek if there is a successful write. the bytes between the
+ * previous EOF and the newly written data can be filled with any value. On
+ * Linux and FreeBSD (and all POSIX) and Windows NT (and derivatives), it
+ * will be zero-filled. On DOS, Win32s, Windows 95 (and derivatives), it
+ * will be filled with arbitrary values, i.e. whatever unused data happens
+ * to be on the filesystem.
+ */
+off64_t __watcall lseek64_growany(int fd, off64_t offset, int whence);
 #if _FILE_OFFSET_BITS == 64
   int __watcall ftruncate(int fd, off64_t length);
 #  pragma aux ftruncate "ftruncate64_"
