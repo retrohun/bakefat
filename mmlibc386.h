@@ -163,6 +163,7 @@ int __watcall close(int fd);
 int __watcall unlink(const char *pathname);
 int __watcall remove(const char *pathname);
 #pragma aux remove "unlink_"  /* Not necessary, the libc defines both. */
+int __watcall rename(const char *oldpath, const char *newpath);
 #if _FILE_OFFSET_BITS == 64
   off64_t __watcall lseek(int fd, off64_t offset, int whence);
 #  pragma aux lseek "lseek64_"

@@ -252,6 +252,13 @@ section _TEXT
     %define __NEED_simple_syscall3_WAT
   %endif
 %endif
+%ifdef __NEED_rename_
+  %ifdef OS_WIN32
+    %define __NEED__MoveFileA@8
+  %else
+    %define __NEED_simple_syscall3_WAT
+  %endif
+%endif
 %ifdef __NEED_time_
   %define __NEED_simple_syscall3_WAT
 %endif
@@ -1930,6 +1937,26 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		ret_nonzero_as_minus_one_pop_edx_ecx
   %else
 		push byte 10  ; FreeBSD i386 and Linux i386 SYS_unlink.
+		jmp short simple_syscall3_WAT
+  %endif
+%endif
+
+%ifdef __NEED_rename_  ; Also true if: ifdef __NEED_remove_.
+  global rename_
+  rename_:  ; int __watcall rename(const char *oldpath, const char *newpath);
+  %ifdef OS_WIN32
+		push ecx  ; Save.
+		push edx  ; Save.
+		; !! This fails on Win32 if newpath already exists. This is not POSIX behavior. Use MOVEFILE_REPLACE_EXISTING to fix it.
+		; !! This succeeds on Win32 if newpath is on a different filesystem. It fails on POSIX. We can live with that.
+		;push byte MOVEFILE_REPLACE_EXISTING  ; arg3 of _MoveFileExA@12. WDOSX kernel32.dll doesn't have _MoveFileEx@12 exported. !! GetProcAddress("MoveFileExA@12"), and use it. On WDOS, delete the target first (non-reentrant).
+		push edx  ; Argument newpath of _MoveFileA@8.
+		push eax  ; Argument oldpath of _MoveFileA@8.
+		;call _MoveFileExA@12  ; Ruins EDX and ECX.
+		call _MoveFileA@8  ; Ruins EDX and ECX.
+		ret_nonzero_as_minus_one_pop_edx_ecx
+  %else
+		push byte 38  ; FreeBSD i386 and Linux i386 SYS_unlink.
 		jmp short simple_syscall3_WAT
   %endif
 %endif
