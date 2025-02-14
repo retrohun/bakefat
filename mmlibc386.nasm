@@ -1632,16 +1632,18 @@ section _TEXT
 		cmp eax, byte -1  ; INVALID_SET_FILE_POINTER.
 		jne short .done
 		push eax  ; Save.
+		push edx  ; Save.
 		call _GetLastError@4  ; Ruins EDX and ECX.
+		pop edx  ; Restore.
 		test eax, eax
 		pop eax  ; Restore.
-		jz short .done  ; Jump iff NO_ERROR (== 0).
+		jnz short .bad  ; Jump iff not NO_ERROR (== 0).
 		; We want to treat any negative return value as an error
 		; here (and replace it with -1), because off64_t can't
 		; represent positions >=(1>>63).
 		test edx, edx
 		jns short .done
-		or eax, byte -1  ; EAX := -1 (indicating error).
+    .bad:	or eax, byte -1  ; EAX := -1 (indicating error).
 		cdq  ; EDX:EAX ;= -1 (indicating error).
     .done:	ret
   %else
