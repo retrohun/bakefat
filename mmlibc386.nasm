@@ -380,7 +380,7 @@ section _TEXT
   %ifdef OS_WIN32
     %define __NEED__SetFilePointer@16
     %define __NEED__GetLastError@4
-  %elifdef __MULTIOS__
+  %else
     %define __NEED__lseek64_growany
   %endif
 %endif
