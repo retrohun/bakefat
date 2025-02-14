@@ -224,22 +224,39 @@ section _TEXT
     %define __NEED_lseek64_growany_
   %endif
 %endif
-%ifdef __NEED_lseek64_growany_
+%ifdef __NEED_ftruncate64_
   %ifdef OS_WIN32
     %define __NEED__SetFilePointer@16
-    %define __NEED__GetLastError@4
-  %elifdef __MULTIOS__
-    %define __NEED__lseek64_growany
-  %endif
-%endif
-%ifdef __NEED_ftruncate64_
-  %ifndef OS_WIN32
+    %define __NEED__SetEndOfFile@4
+    %define __NEED___M_ftruncate64_and_seek_
+    %define __NEED____M_is_not_winnt
+  %else
     %define __NEED__ftruncate64
   %endif
 %endif
 %ifdef __NEED__ftruncate64
   %ifdef __MULTIOS__
     %define __NEED____M_lseek64_linux
+  %endif
+%endif
+%ifdef __NEED_ftruncate_
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePointer@16
+    %define __NEED___M_ftruncate64_and_seek_
+  %endif
+%endif
+%ifdef __NEED___M_ftruncate64_and_seek_
+  %define __NEED__SetEndOfFile@4
+  %define __NEED____M_is_not_winnt
+  %define __NEED_lseek64_growany_
+  %define __NEED_write_
+%endif
+%ifdef __NEED_lseek64_growany_
+  %ifdef OS_WIN32
+    %define __NEED__SetFilePointer@16
+    %define __NEED__GetLastError@4
+  %elifdef __MULTIOS__
+    %define __NEED__lseek64_growany
   %endif
 %endif
 %ifdef __NEED_write_
@@ -303,12 +320,6 @@ section _TEXT
     %define __NEED_simple_syscall3_WAT
   %endif
 %endif
-%ifdef __NEED_ftruncate_
-  %ifdef OS_WIN32
-    %define __NEED__SetFilePointer@16
-    %define __NEED__SetEndOfFile@4
-  %endif
-%endif
 %ifdef __NEED_malloc_simple_unaligned_
   %ifdef OS_WIN32
     %define __NEED__VirtualAlloc@16
@@ -369,6 +380,9 @@ section _TEXT
   %ifdef OS_WIN32
     %define __NEED_ExitProcess@4
   %endif
+%endif
+%ifdef __NEED____M_is_not_winnt
+  %define __NEED__GetVersion@0
 %endif
 
 ; TODO(pts): Add more if needed.
@@ -485,6 +499,14 @@ section _TEXT
     %endif
   %else  ; %ifndef OS_WIN32
     _cstart_:
+    %ifdef __NEED____M_is_not_winnt
+		call _GetVersion@0
+		shr eax, 31
+		; If the result of _GetVersion@0 is negative, then we are not running under Windows NT.
+		; More info: https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/clib/startup/c/mainwnt.c#L138-L142
+		; More info: https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/lib_misc/h/osver.h#L43 */
+		mov [___M_is_not_winnt], al
+    %endif
     %ifdef __NEED_fd_handles
 		mov edi, fd_handles
 		push byte STD_INPUT_HANDLE
@@ -813,6 +835,10 @@ section _TEXT
 %ifdef __NEED__GetLastError@4
   extern _GetLastError@4
   import _GetLastError@4 kernel32.dll GetLastError
+%endif
+%ifdef __NEED__GetVersion@0
+  extern _GetVersion@0
+  import _GetVersion@0 kernel32.dll GetVersion
 %endif
 %ifdef __NEED__VirtualAlloc@16
   extern _VirtualAlloc@16
@@ -1918,6 +1944,7 @@ section _TEXT
   ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
   %ifdef OS_WIN32
 		push ecx  ; Save.
+		push eax  ; Save fd for __M_ftruncate64_and_seek_.
 		push ebx  ; Save.
 		push edx  ; Save.
 		push edx  ; Save length.
@@ -1931,21 +1958,17 @@ section _TEXT
 		pop ecx  ; Restore ECX := length.
 		test eax, eax
 		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
-		push eax  ; Save original position.
-		push byte 0  ; SEEK_SET.
-		push byte NULL  ; lpDistanceToMoveHigh.
-		push ecx  ; lDistanceToMove.
-		push ebx  ; hFile.
-		call _SetFilePointer@16  ; Ruins EDX and ECX.
-		pop ecx  ; Restore ECX := original position.
-		test eax, eax
-		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		xchg eax, ecx
+		cdq
+		; Now: EDX:EAX == length; ECX == original position.
 		push ecx  ; Save original position.
-		push ebx  ; hFile.
-		call _SetEndOfFile@4  ; Ruins EDX and ECX. !!! Fill the new bytes with NUL bytes on Windows 95.
-		pop ecx  ; Restore ECX := original position.
+		push ebx  ; Save.
+		mov ebx, [esp+4*4]  ; fd.
+		call __M_ftruncate64_and_seek_
+		pop ebx  ; Restore.
+		pop ecx  ; Restore original position.
 		test eax, eax
-		jz short .bad
+		jnz .bad
 		push byte 0  ; SEEK_SET.
 		push byte NULL  ; lpDistanceToMoveHigh.
 		push ecx  ; lDistanceToMove.
@@ -1958,6 +1981,7 @@ section _TEXT
     .bad:	or eax, byte -1
     .done:	pop edx  ; Restore.
 		pop ebx  ; Restore.
+		pop ecx  ; Discard fd.
 		pop ecx  ; Restore.
 		ret
   %else
@@ -1999,6 +2023,131 @@ section _TEXT
       %endif
 		or eax, byte -1  ; EAX := -1.
     .ret:	ret
+  %endif
+%endif
+
+%ifdef __NEED___M_ftruncate64_and_seek_
+  %ifdef OS_WIN32
+    ; Returns 0 on success. Upon success, the current file position is the desired length. Upon error, the file position can be anything, the file size may be anything, and the file may not be grown fully.
+    __M_ftruncate64_and_seek_:  ; static int __watcall __M_ftruncate64_and_seek(off64_t length  /* EDX:EAX */, int fd  /* EBX */);
+		push ecx  ; Save.
+		push esi  ; Save.
+		push edi  ; Save.
+		cmp byte [___M_is_not_winnt], 0
+		je short .winnt_or_not_growing  ; On Windows NT (and derivatives), a _SetFilePointer@16 (lseek64) and a _SetEndOfFile@4 is enough, and newly added bytes will be NUL.
+		; Get old (current) file size to ESI:EDI.
+		push eax  ; Save.
+		push edx  ; Save.
+		push ecx  ; Save.
+		push ebx  ; Save fd.
+		xchg eax, ebx  ; EAX := fd; EBX := junk.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 2  ; SEEK_END.
+		pop edx
+		call lseek64_growany_
+		test edx, edx
+		mov esi, edx  ; ECX := EDX (high word of old file size).
+		xchg edi, eax  ; EDI := EAX (low word of old file size).
+		pop ebx  ; Restore fd.
+		pop ecx  ; Restore.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+		js short .js_bad
+		; Now: ESI:EDI == old file size; EDX:EAX == length.
+		cmp edx, esi
+		jb short .winnt_or_not_growing  ; Desired length is smaller than old size.
+		ja short .grow  ; Desired length is larger than old size, so grow.
+		cmp eax, edi
+		je short .ok  ; Desired length is the same as old size, so do nothing. The current file position is the desired length.
+		ja short .grow  ; Desired length is larger than old size, so grow.
+    .winnt_or_not_growing:
+		push ebx  ; Save fd.
+		mov ecx, edx
+		xchg ebx, eax  ; ECX:EBX := length; EAX := fd.
+		push byte 0  ; SEEK_SET.
+		pop edx
+		call lseek64_growany_
+		test edx, edx
+		pop eax  ; Restore EBX := fd.
+		js short .js_bad
+		call handle_from_fd  ; EAX --> EAX.
+		push eax  ; hFile.
+		call _SetEndOfFile@4  ; Ruins EDX and ECX.
+		test eax, eax
+		jz short .bad
+		; The current file position is length.
+    .ok:	xor eax, eax  ; Indicate success.
+		jmp short .done
+    .grow:  ; Grow the file (EBX == fd) size from ESI:EDI bytes to EDX:EAX bytes by adding NUL bytes. Append at least 1 byte. Current file position is unknown.
+		push eax  ; Save.
+		push edx  ; Save.
+		push ebx  ; Save fd.
+		xchg eax, ebx  ; EAX := fd; EBX := junk.
+		mov ecx, esi
+		mov ebx, edi  ; ECX:EBX ;= forw start position.
+		push byte 0  ; SEEK_SET.
+		pop edx
+		call lseek64_growany_
+		test edx, edx
+		pop ebx  ; Restore fd.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+    .js_bad:	js short .bad
+		; Make the very first write an alignment write: align the
+		; file position (ESI:EDI) to a multiple of nul_buf.size.
+		; This will hopefully make subsequent writes faster.
+		push eax
+		push edi  ; Save.
+		neg edi
+		and edi, dword nul_buf.size-1
+		cmp esi, edx
+		ja short .many_more
+    .many_more:	cmp edi, eax
+		ja short .no_awr
+		test edi, edi
+		jz short .no_awr
+		xchg eax, edi  ; EAX := EDI; EDI := junk.
+		pop edi  ; Restore.
+		push edx
+		push ebx
+		jmp short .got_size
+    .no_awr:  ; An alignment write is not possible. Clean up the stack and enter the main loop of writes.
+		pop edi  ; Restore.
+		pop eax
+    .next_wr:	push eax  ; Save.
+		push edx  ; Save.
+		push ebx  ; Save fd.
+		sub eax, edi
+		jbe short .limit  ; Jump if CF=1 or ZF=1.
+		cmp eax, strict dword nul_buf.size
+		jbe short .got_size
+    .limit:	mov eax, nul_buf.size
+    .got_size:	mov edx, nul_buf
+		xchg ebx, eax  ; EAX := fd; EBX := number of bytes to write.
+		call write_
+		add edi, eax
+		adc esi, byte 0
+		cmp eax, byte 0
+		pop ebx  ; Restore fd.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+		jle short .bad
+		cmp esi, edx
+		jne short .next_wr
+		cmp edi, eax
+		jne short .next_wr
+		jmp short .ok  ; The current file position is the desired length.
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edi  ; Restore.
+		pop esi  ; Restore.
+		pop ecx  ; Restore.
+		ret
+    section _CONST2
+    section _BSS
+    nul_buf: resb 0x1000  ; Must be a power of 2 because of the alignment write.
+    .size: equ $-nul_buf
+    section _TEXT
   %endif
 %endif
 
@@ -3126,5 +3275,9 @@ section _BSS  ; Put the 1-aligned entries to the end.
       global ___M_is_freebsd
       ___M_is_freebsd: resb 1  ; Are we actually running under FreeBSD (rathar than Linux)?
     %endif
+  %endif
+  %ifdef __NEED____M_is_not_winnt
+    global ___M_is_not_winnt
+    ___M_is_not_winnt: resb 1  ; Are we running under a non-derivative of Windows NT, such as Win32s, Windows 95, Windows 98, Windows ME or WDOSX?
   %endif
 section _TEXT

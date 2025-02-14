@@ -223,7 +223,8 @@ extern int stdout_fd;
 #ifdef CONFIG_MMLIBC386_INTERNAL_DEFS
   off64_t __cdecl __M_lseek64_linux(int fd, off64_t offset, int whence);
   int __watcall __M_fopen_open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
-  extern int __M_is_freebsd;
+  extern char __M_is_freebsd;
+  extern char __M_is_not_winnt;
 #endif
 
 #endif  /* #define _MMLIBC86_H */
