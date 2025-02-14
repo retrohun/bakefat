@@ -240,6 +240,11 @@ section _TEXT
     %define __USE_ftruncate_64bit
   %endif
 %endif
+%ifdef __NEED_ftruncate_grow_here_
+  %ifdef OS_WIN32  ; We must use __NEED_ftruncate64_here_, because the non-64 version doesn't call __NEED___M_ftruncate64_and_seek_, which does the padding if needed.
+    %define __USE_ftruncate_64bit
+  %endif
+%endif
 %ifdef __NEED_ftruncate_here_
   %ifdef __USE_ftruncate_64bit
     %define __NEED_ftruncate64_here_
@@ -248,7 +253,23 @@ section _TEXT
     %define __NEED_ftruncate_
   %endif
 %endif
+%ifdef __NEED_ftruncate_grow_here_
+  %ifdef __USE_ftruncate_64bit
+    %define __NEED_ftruncate64_grow_here_
+  %else
+    %define __NEED_lseek_growany_
+    %define __NEED_ftruncate_
+  %endif
+%endif
 %ifdef __NEED_ftruncate64_here_
+  %define __NEED_lseek64_growany_
+  %ifdef OS_WIN32
+    %define __NEED___M_ftruncate64_and_seek_
+  %else
+    %define __NEED__ftruncate64
+  %endif
+%endif
+%ifdef __NEED_ftruncate64_grow_here_
   %define __NEED_lseek64_growany_
   %ifdef OS_WIN32
     %define __NEED___M_ftruncate64_and_seek_
@@ -2934,6 +2955,77 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		ret
 %endif
 
+%ifdef __NEED_ftruncate64_grow_here_
+  global ftruncate64_grow_here_  ; Not POSIX. Equivalent to `if (lseek64(fd, 0, SEEK_CUR) > filelength64(fd)) ftruncate64(fd, lseek64(fd, 0, SEEK_CUR))', but with better error handling.
+  ftruncate64_grow_here_:  ; int __watcall ftruncate64_grow_here(int fd);
+		push esi  ; Save.
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		push eax  ; Save fd.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop edx
+		call lseek64_growany_
+		pop esi  ; Restore ESI := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		push esi  ; Save fd.
+		push edx  ; Save high word of original position.
+		push eax  ; Save low  word of original position.
+		xchg eax, esi  ; EAX := ESI (fd); ESI := junk.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 2  ; SEEK_END.
+		pop edx
+		call lseek64_growany_
+		pop ebx  ; Restore EBX := low  word of original position.
+		pop ecx  ; Restore ECX := high word of original position.
+		pop esi  ; Restore ESI := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		; Now: ECX:EBX: original position; EDX:EAX: file size.
+		cmp ecx, edx
+		jb short .seek_back
+		ja short .grow
+		cmp ebx, eax
+		jb short .seek_back
+		je short .ok
+    .grow:  ; If original position > file size, then grow the file to the original position.
+  %ifdef OS_WIN32
+		push ebx  ; Save.
+		mov eax, ebx  ; EAX := EBX (low  dword of original position).
+		mov edx, ecx  ; EDX := ECX (high dword of original position).
+		mov ebx, esi  ; EBX := fd.
+		call __M_ftruncate64_and_seek_  ; Ruins EDX and EBX.
+		pop ebx  ; Restore.
+  %else
+		push ecx  ; High dword of original position.
+		push ebx  ; Low  dword of original position.
+		push esi  ; fd.
+		call _ftruncate64  ; It's simpler to call it here than to change the ABI of it and its dependencies. Ruins EDX and ECX.
+		;add esp, byte 3*4  ; Clean up arguments of _ftruncate64 above.
+		times 3 pop ecx  ; Clean up arguments of _ftruncate64 above, and restore ECX. Our implementation of _ftruncate64 doesn't modify its arguments on the stack.
+  %endif
+		test eax, eax
+		jnz short .done
+    .seek_back:  ; If original position < file size (or the ftruncate has suceeded), then seek back to the original position (ECX:EBX).
+		xchg eax, esi  ; EAX := ESI (fd); ESI := junk.
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+    .ok:	xor eax, eax  ; Indicate success.
+		jmp short .done
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		pop esi  ; Restore.
+		ret
+%endif
+
 %ifdef __NEED_ftruncate_here_
   global ftruncate_here_  ; Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling.
   %ifdef __USE_ftruncate_64bit
@@ -2959,6 +3051,65 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		jmp short .done
     .bad:	or eax, byte -1  ; Indicate error.
     .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_ftruncate_grow_here_
+  global ftruncate_grow_here_  ; Not POSIX. Equivalent to `if (lseek(fd, 0, SEEK_CUR) > filelength(fd)) ftruncate(fd, lseek(fd, 0, SEEK_CUR))', but with better error handling.
+  %ifdef __USE_ftruncate_64bit
+    ftruncate_grow_here_: equ ftruncate64_grow_here_  ; int __watcall ftruncate_grow_here(int fd);
+  %else  ; Shorter implementation (including dependencies) for non-OS_WIN32.
+    %ifdef OS_WIN32
+      %error OS_WIN32_NEEDS_USE_FTRUNCATE_HERE_64  ; We must use __NEED_ftruncate64_grow_here_, because the non-64 version doesn't call __NEED___M_ftruncate64_and_seek_, which does the padding if needed.
+      db 1/0
+    %endif
+    ftruncate_grow_here_:  ; int __watcall ftruncate_grow_here(int fd);
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		push eax  ; Save fd.
+		xor edx, edx  ; EDX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop ebx
+		call lseek_growany_
+		pop ecx  ; Restore ECX := fd.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		push ecx  ; Save fd.
+		push eax  ; Save original position.
+		xchg eax, ecx  ; EAX := ECX (fd); ECX := junk.
+		xor edx, edx  ; EDX := 0 (offset).
+		push byte 2  ; SEEK_END.
+		pop ebx
+		call lseek_growany_
+		pop ebx  ; Restore EBX := original position.
+		pop ecx  ; Restore ECX := fd.
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		; Now: EBX: original position; EAX: file size.
+		cmp ebx, eax
+		jb short .seek_back
+		je short .ok
+    .grow:  ; If original position > file size, then grow the file to the original position.
+		mov eax, ecx  ; fd.
+		mov edx, ebx  ; Original position.
+		call ftruncate_  ; Ruins EDX.
+		test eax, eax
+		jnz short .done
+    .seek_back:  ; If original position < file size (or the ftruncate has suceeded), then seek back to the original position (EBX).
+		xchg eax, ecx  ; EAX := ECX (fd); ECX := junk.
+		mov edx, ebx  ; Original position.
+		xor ebx, ebx  ; SEEK_SET.
+		call lseek_growany_
+		test eax, eax
+		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>63).
+    .ok:	xor eax, eax  ; Indicate success.
+		jmp short .done
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
 		pop ebx  ; Restore.
 		ret
   %endif

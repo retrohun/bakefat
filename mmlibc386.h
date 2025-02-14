@@ -209,6 +209,13 @@ int __watcall ftruncate64(int fd, off64_t length);
   int __watcall ftruncate_here(int fd);  /* 32-bit length. Use ftruncate64_here(...) for 64-bit length. Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling. */
 #endif
 int __watcall ftruncate64_here(int fd);  /* Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling. */
+#if _FILE_OFFSET_BITS == 64
+  int __watcall ftruncate_grow_here(int fd);  /* Not POSIX. Equivalent to `if (lseek(fd, 0, SEEK_CUR) > filelength(fd)) ftruncate(fd, lseek(fd, 0, SEEK_CUR))', but with better error handling. */
+#  pragma aux ftruncate_grow_here "ftruncate64_grow_here_"
+#else
+  int __watcall ftruncate_grow_here(int fd);  /* 32-bit length. Use ftruncate64_grow_here(...) for 64-bit length. Not POSIX. Equivalent to `if (lseek(fd, 0, SEEK_CUR) > filelength(fd)) ftruncate(fd, lseek(fd, 0, SEEK_CUR))', but with better error handling. */
+#endif
+int __watcall ftruncate64_grow_here(int fd);  /* Not POSIX. Equivalent to `if (lseek64(fd, 0, SEEK_CUR) > filelength64(fd)) ftruncate64(fd, lseek64(fd, 0, SEEK_CUR))', but with better error handling. */
 
 time_t __watcall time(time_t *tloc);
 
