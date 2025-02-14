@@ -1885,7 +1885,7 @@ section _TEXT
 		ret
 %endif
 
-%ifdef __NEED_simple_syscall3_WAT  ; !! Migrate the rest of the syscall functions to __watcall using simple_syscall3_WAT.
+%ifdef __NEED_simple_syscall3_WAT
   %ifndef OS_WIN32
     ; Input: syscall number in dword [ESP], return address in dword [ESP+4], arg1 in EAX, arg2 in EDX, arg3 in EDX.
     ; It assumes same syscall number and behavior for FreeBSD i386 and Linux i386.
