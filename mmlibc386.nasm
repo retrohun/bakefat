@@ -16,7 +16,63 @@
 ; of libc function dependencies). For a more full-features libcs, see
 ; https://github.com/pts/minilibc686 .
 ;
-; Please note that _errno values may still be OS-specific.
+; However, this lbc favors correctness over short code size for each
+; function whose name matches a standard function name (e.g. POSIX or
+; OpenWatcom), i.e. it contains compatibility code to make the behavior
+; standard. Examples:
+;
+; * When lseek(2) + write(2), lseek64(2) + write(2), ftruncate(2) or
+;   ftruncate64(2) grows the file, NUL bytes are appended (as mandated by
+;   POSIX), even on Windows 95, Win32s and WDOSX, where the corresponding
+;   syscalls allow for abitrary (junk) new byte values. This libc
+;   accomplishes this compatibility wrapping these functions.
+; * If this libc encounters an unsupported open(2) flag on Win32 or FreeBSD,
+;   it reports an error instead of ignoring the flag.
+; * !!! TODO(pts): Do it. rename(2) works even if newpath already exists,
+;   even on Win32.
+; * !!! TODO(pts): Do it. Opened files can be deleted while being open, if
+;   the operating system and the filesystem support it, even on Win32.
+;
+; Limitations of this libc and its toolchain:
+;
+; * Only very functions are provided, a small subset of C89 (ANSI C) and
+;   POSIX. For example, there is printf_void(3) (with a very limited lits of
+;   supported specifiers), but other than that there is no buffered input,
+;   buffered output or string formatting.
+; * There are no standard C headers, everything is declared in a singe .h file.
+; * Only the OpenWatcom C compiler wcc386(1) targeting i386 is supported.
+;   (Maybe in a future, the wcc(1) compiler targeing 8086 will be supported,
+;   with operating systems DOS 8086 and ELKS.)
+; * Multithreaded programs are not supported, the libc assumes that the program
+;   runs in a single thread.
+; * Floating point functions (such as sqrt(3)) are not provided.
+; * Debugging and profiling are not supported. It's not possible to add
+;   debug info (such as function names, source file names, line numbers,
+;   global variable names and types) to the generated executable programs.
+; * Mechanisms (such as address randomization or a stack protection) to
+;   mitigate vulnerabilities are not provided or supported.
+; * There are no sanitizers (such as AddressSantitizer) or Valgrind support.
+; * No 64-bit support, it's 32-bit Intel (IA-32) only.
+; * errno values are correct on Linux only. On Win32 errno is not supported,
+;   and on FreeBSD sometimes the FreeBSD error value is returned, and
+;   sometimes the Linux one.
+;   !! TODO(pts): Convert FreeBSD errno values to Linux? At least a few.
+; * On Win32, the number of files opened at the same time is limited at
+;   compile time (by default to 32).
+; * No locale support: isalpha(3), tolower(3), strncasecmp(3) etc. are
+;   ASCII-only (equivalent of LC_ALL=C).
+; * No wide character support, only the 8-bit string functions are provided.
+; * Code in the libc is optimized for size, and the default C compiler
+;   settings also make the C compiler optimize for size. Nothing is provided
+;   to optimize for speed instead.
+; * Building as a shared library (*.so, *.dylib, *.dll) is not supported.
+; * libc functions are implemented using the \_\_watcall calling convention,
+;   which makes them impossible to call from C code compiled with other
+;   compilers. (The user can declare some of their functions \_\_cdecl to
+;   make them callable.)
+; * No C++, Objective C or Objective C++ support. (Maybe in the future C++
+;   code will be allowed with `-fno-rtti -fno-excepions`, and also without any
+;   STL.)
 ;
 ; Info: https://alfonsosiciliano.gitlab.io/posts/2021-01-02-freebsd-system-calls-table.html
 ;
@@ -913,7 +969,7 @@ section _TEXT
 
 ; --- C compiler support functions.
 
-%ifdef __NEED___U8LS  ; For OpenWatcom. !! Add the remaining non-float ones.
+%ifdef __NEED___U8LS  ; For OpenWatcom. !!! Add the remaining non-float ones.
   %ifdef __NEED___I8LS
     global __I8LS
     __I8LS:  ; long long __watcall_but_ruins_ecx __I8LS(long long a, int b) { return a << b; }
@@ -936,7 +992,7 @@ section _TEXT
 		ret
 %endif
 
-; --- libc string functions.  ; !! Convert as many functions as possible from __cdecl to __watcall. Get short implementation from other libcs.
+; --- libc string functions.
 
 %ifdef __NEED__memcpy
   global _memcpy  ; Longer code than memcpy_.
@@ -1316,7 +1372,7 @@ section _TEXT
 
 %ifdef __NEED_check_handle
   %ifdef OS_WIN32
-    check_handle:  ; Checks the handle in EAX. !! Inline this function.
+    check_handle:  ; Checks the handle in EAX.
 		inc eax
 		cmp eax, byte 2  ; CF := (handle is invalid: NULL or INVALID_HANDLE_VALUE).
 		dec eax  ; Doesn't affect CF.
@@ -1790,7 +1846,7 @@ section _TEXT
 
 ; TODO(pts): Make at least one function fall through to simple_syscall3_AL.
 
-%ifdef __NEED_simple_syscall3_AL  ; !! Remove this helper function as soon as all callers have been migrated to simple_syscall3_WAT.
+%ifdef __NEED_simple_syscall3_AL  ; TODO(pts): Remove this helper function and all the __cdecl functions. (Would it be better to keep them?)
   %ifndef OS_WIN32
     ; Input: syscall number in AL, up to 3 arguments on the stack (__cdecl).
     ; It assumes same syscall number and behavior for FreeBSD i386 and Linux i386.
