@@ -226,10 +226,8 @@ section _TEXT
 %endif
 %ifdef __NEED_ftruncate64_
   %ifdef OS_WIN32
-    %define __NEED__SetFilePointer@16
-    %define __NEED__SetEndOfFile@4
+    %define __NEED_lseek64_growany_
     %define __NEED___M_ftruncate64_and_seek_
-    %define __NEED____M_is_not_winnt
   %else
     %define __NEED__ftruncate64
   %endif
@@ -2871,17 +2869,53 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 %endif
 
 %ifdef __NEED_ftruncate64_
-  %ifndef OS_WIN32
-    global ftruncate64_
-    ftruncate64_:  ; int __watcall ftruncate64(int fd /* EAX */ , off64_t length  /* ECX:EBX */);
-          push edx  ; Save.
-          push ecx
-          push ebx
-          push eax
-          call _ftruncate64  ; It's simpler to call it here than to change the ABI of it and its dependencies.
-          add esp, byte 3*4  ; Cleanup arguments of _ftruncate64 above.
-          pop edx  ; Restore.
-          ret
+  global ftruncate64_
+  ftruncate64_:  ; int __watcall ftruncate64(int fd /* EAX */ , off64_t length  /* ECX:EBX */);
+  %ifdef OS_WIN32
+		push edi  ; Save.
+		push edx  ; Save.
+		push eax  ; Save fd.
+		push ecx  ; Save high dword of length.
+		push ebx  ; Save low  dword of length.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop edx
+		call lseek64_growany_
+		pop edi  ; Restore EDI := low  dword of length.
+		pop ecx  ; Restore ECX := high dword of length.
+		pop ebx  ; Restore EBX := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		push edx  ; Save high dword of original position.
+		push eax  ; Save low  dword of original position.
+		xchg eax, edi  ; EAX := low  dword of length; EDI := junk.
+		mov edx, ecx   ; EDX := high dword of length; EDI := junk.
+		push ebx  ; Save fd.
+		call __M_ftruncate64_and_seek_
+		test eax, eax
+		pop eax  ; Restore EAX := fd.
+		pop ebx  ; Restore EBX := low  dword of original position.
+		pop ecx  ; Restore ECX := high dword of original position.
+		jnz short .bad
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		xor eax, eax  ; Indicate success.
+		test edx, edx
+		jns short .done  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edx  ; Restore.
+		pop edi  ; Restore.
+		ret
+  %else
+		push edx  ; Save.
+		push ecx
+		push ebx
+		push eax
+		call _ftruncate64  ; It's simpler to call it here than to change the ABI of it and its dependencies.
+		add esp, byte 3*4  ; Cleanup arguments of _ftruncate64 above.
+		pop edx  ; Restore.
+		ret
   %endif
 %endif
 
