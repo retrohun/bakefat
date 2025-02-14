@@ -224,6 +224,14 @@ section _TEXT
     %define __NEED_lseek64_growany_
   %endif
 %endif
+%ifdef __NEED_ftruncate_here_
+  %ifdef OS_WIN32
+    %define __NEED_ftruncate64_here_
+  %else
+    %define __NEED_lseek_growany_
+    %define __NEED_ftruncate_  ; !!! TODO(pts): If _ftruncate64 is used anyway, then make _ftruncate_here the same as _ftruncate64_here.
+  %endif
+%endif
 %ifdef __NEED_ftruncate64_here_
   %define __NEED_lseek64_growany_
   %ifdef OS_WIN32
@@ -2222,6 +2230,30 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
+%ifdef __NEED_ftruncate_here_
+  %ifndef OS_WIN32  ; For OS_WIN32, it's defined somewhere else.
+    global ftruncate_here_  ; Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling.
+    ftruncate_here_:  ; int __watcall ftruncate_here(int fd);
+		push ebx  ; Save.
+		push edx  ; Save.
+		push eax  ; Save fd.
+		xor edx, edx  ; EDX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop ebx
+		call lseek_growany_
+		test edx, edx
+		pop edx  ; Restore EDX := fd.
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		xchg eax, edx  ; EAX := fd; EDX := length.
+		call ftruncate_  ; It's simpler to call it here than to change the ABI of it and its dependencies.
+		jmp short .done
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edx  ; Restore.
+		pop ebx  ; Restore.
+		ret
+  %endif
+%endif
+
 %ifdef __NEED_ftruncate_
   global ftruncate_
   ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
@@ -2878,6 +2910,13 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
+%ifdef __NEED_ftruncate_here_
+  %ifdef OS_WIN32
+    global ftruncate_here_  ; Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling.
+    ftruncate_here_:  ; int __watcall ftruncate_here(int fd);
+		; Fall through to ftrunate64_here_.
+  %endif
+%endif
 %ifdef __NEED_ftruncate64_here_
   global ftruncate64_here_  ; Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling.
   ftruncate64_here_:  ; int __watcall ftruncate64_here(int fd);

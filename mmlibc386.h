@@ -202,8 +202,13 @@ off64_t __watcall lseek64_growany(int fd, off64_t offset, int whence);
   int __watcall ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
 #endif
 int __watcall ftruncate64(int fd, off64_t length);
-/* Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling. */
-int __watcall ftruncate64_here(int fd);
+#if _FILE_OFFSET_BITS == 64
+  int __watcall ftruncate_here(int fd);  /* Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling. */
+#  pragma aux ftruncate_here "ftruncate64_here_"
+#else
+  int __watcall ftruncate_here(int fd);  /* 32-bit length. Use ftruncate64_here(...) for 64-bit length. Not POSIX. Equivalent to ftruncate(fd, lseek(fd, 0, SEEK_CUR)), but with better error handling. */
+#endif
+int __watcall ftruncate64_here(int fd);  /* Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling. */
 
 time_t __watcall time(time_t *tloc);
 
