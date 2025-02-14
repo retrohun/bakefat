@@ -188,8 +188,8 @@ section _TEXT
                   dd etxt_header, __edata, __end
 %endif
 
-%ifdef __NEED___I8LS
-  %define __NEED___U8LS
+%ifdef __NEED___I8D
+  %define __NEED___U8D
 %endif
 %ifdef __NEED__environ
   %ifndef OS_WIN32
@@ -967,15 +967,23 @@ section _TEXT
   import _CreateFileA@28 kernel32.dll CreateFileA
 %endif
 
-; --- C compiler support functions.
+; --- OpenWatcom 64-bit integer arithmetics (`long long' and `unsigned long long') support.
+;
+; The OpenWatcom C compiler generates code which calls these functions, and
+; expects the libc to provide these functions.
 
-%ifdef __NEED___U8LS  ; For OpenWatcom. !!! Add the remaining non-float ones.
-  %ifdef __NEED___I8LS
-    global __I8LS
-    __I8LS:  ; long long __watcall_but_ruins_ecx __I8LS(long long a, int b) { return a << b; }
-  %endif
+%ifdef __NEED___U8LS  ; For OpenWatcom.
+  %define __DO___U8LS
   global __U8LS
   __U8LS:  ; unsigned long long __watcall_but_ruins_ecx __U8LS(unsigned long long a, int b) { return a << b; }
+%endif
+%ifdef __NEED___I8LS  ; For OpenWatcom.
+  %define __DO___U8LS
+  global __I8LS
+  __I8LS:  ; long long __watcall_but_ruins_ecx __I8LS(long long a, int b) { return a << b; }
+%endif
+%ifdef __DO___U8LS
+  ; Shifts EDX:EAX left by EBX&63.
   ; Input: EDX:EAX == a; EBX == b.
   ; Output: EDX:EAX == (a << b); EBX == b; ECX == junk.
 		mov ecx, ebx
@@ -989,6 +997,197 @@ section _TEXT
 		;sub cl, 0x20  ; Not needed, CL&0x1f is used by shift instructions.
 		xor eax, eax
 		shl edx, cl
+		ret
+%endif
+
+%ifdef __NEED___U8M  ; For OpenWatcom.
+  %define __DO___U8M
+  global __U8M
+  __U8M:
+%endif
+%ifdef __NEED___I8M  ; For OpenWatcom.
+  %define __DO___U8M
+  global __I8M
+  __I8M:
+%endif
+%ifdef __DO___U8M
+  ; Multiplies (sign doesn't matter) EDX:EAX by ECX:EBX, stores the product in EDX:EAX.
+		test edx, edx
+		jne short .1
+		test ecx, ecx
+		jne short .1
+		mul ebx
+		ret
+  .1:		push eax
+		push edx
+		mul ecx
+		mov ecx, eax
+		pop eax
+		mul ebx
+		add ecx, eax
+		pop eax
+		mul ebx
+		add edx, ecx
+		ret
+%endif
+
+%ifdef __NEED___U8RS  ; For OpenWatcom.
+  __U8RS:  ; unsigned long long __watcall_but_ruins_ecx __U8RS(unsigned long long a, int b) { return a >> b; }
+  ; Shifts unsigned EDX:EAX right by EBX&63, and ruins ECX.
+  ; Input: EDX:EAX == a; EBX == b.
+  ; Output: EDX:EAX == ((unsigned long long)a >> b); EBX == b; ECX == junk.
+		mov ecx, ebx
+		;and cl, 0x3f  ; Not needed, CL&0x1f is used by shift instructions.
+		test cl, 0x20
+		jnz short .1
+		shrd eax, edx, cl
+		shr edx, cl
+		ret
+  .1:		mov eax, edx
+		;sub ecx, byte 0x20  ; Not needed, CL&0x1f is used by shift instructions.
+		xor edx, edx
+		shr eax, cl
+		ret
+%endif
+
+%ifdef __NEED___I8RS  ; For OpenWatcom.
+  __I8RS:  ; long long __watcall_but_ruins_ecx __I8RS(long long a, int b) { return a >> b; }
+  ; Shifts signed EDX:EAX left by EBX&63, and ruins ECX.
+  ; Input: EDX:EAX == a; EBX == b.
+  ; Output: EDX:EAX == ((long long)a >> b); EBX == b; ECX == junk.
+		mov ecx, ebx
+		;and cl, 0x3f  ; Not needed, CL&0x1f is used by shift instructions.
+		test cl, 0x20
+		jnz short .2
+		shrd eax, edx, cl
+		sar edx, cl
+		ret
+  .2:		mov eax, edx
+		;sub cl, 0x20  ; Not needed, CL&0x1f is used by shift instructions.
+		sar edx, 0x1f
+		sar eax, cl
+		ret
+%endif
+
+%ifdef __NEED___I8D  ; For OpenWatcom.
+  __I8D:
+  ; Divides signed EDX:EAX by ECX:EBX, stores the quotient in EDX:EAX and the
+  ; remainder in ECX:EBX. Keep other registers (except for EFLAGS) intact.
+		or edx, edx
+		js short .2
+		or ecx, ecx
+		js short .1
+		jmp short __U8D
+  .1:		neg ecx
+		neg ebx
+		sbb ecx, byte 0
+		call __U8D
+		jmp short .4
+  .2:		neg edx
+		neg eax
+		sbb edx, byte 0
+		or ecx, ecx
+		jns short .3
+		neg ecx
+		neg ebx
+		sbb ecx, byte 0
+		call __U8D
+		neg ecx
+		neg ebx
+		sbb ecx, byte 0
+		ret
+  .3:		call __U8D
+		neg ecx
+		neg ebx
+		sbb ecx, byte 0
+  .4:		neg edx
+		neg eax
+		sbb edx, byte 0
+		ret
+%endif
+
+%ifdef __NEED___U8D  ; For OpenWatcom.
+  __U8D:
+  ; Divides unsigned EDX:EAX by ECX:EBX, store the quotient in EDX:EAX and the
+  ; remainder in ECX:EBX. Keeps other registers (except for EFLAGS) intact.
+		or ecx, ecx
+		jnz short .6  ; Is ECX nonzero (divisor is >32 bits)? If yes, then do it the slow and complicated way.
+		dec ebx
+		jz short .5  ; Is the divisor 1? Then just return the dividend as the quotient in EDX:EAX, and return 0 as the module on ECX:EBX.
+		inc ebx
+		cmp ebx, edx
+		ja short .4  ; Is the high half of the dividend (EDX) smaller than the divisor (EBX)? If yes, then the high half of the quotient (EDX) will be zero, and just do a 64bit/32bit == 32bit division (single `div' instruction at .4).
+		mov ecx, eax
+		mov eax, edx
+		sub edx, edx
+		div ebx
+		xchg eax, ecx
+  .4:		div ebx	  ; Store the quotient in EAX and the remainder in EDX.
+		mov ebx, edx  ; Save the low half of the remainder to its final location (EBX).
+		mov edx, ecx  ; Set the high half of the quotient (either to 0 or based on the `div' above).
+		sub ecx, ecx  ; Set the high half of the remainder to 0 (because the divisor is 32-bit).
+  .5:		ret  ; Early return if the divisor fits to 32 bits.
+  .6:		cmp ecx, edx
+		jb short .8
+		jne short .7
+		cmp ebx, eax
+		ja short .7
+		sub eax, ebx
+		mov ebx, eax
+		sub ecx, ecx
+		sub edx, edx
+		mov eax, 1
+		ret
+  .7:		sub ecx, ecx
+		sub ebx, ebx
+		xchg eax, ebx
+		xchg edx, ecx
+		ret
+  .8:		push ebp
+		push esi
+		push edi
+		sub esi, esi
+		mov edi, esi
+		mov ebp, esi
+  .9:		add ebx, ebx
+		adc ecx, ecx
+		jb short .12
+		inc ebp
+		cmp ecx, edx
+		jb short .9
+		ja short .10
+		cmp ebx, eax
+		jbe short .9
+  .10:		clc
+  .11:		adc esi, esi
+		adc edi, edi
+		dec ebp
+		js short .15
+  .12:		rcr ecx, 1
+		rcr ebx, 1
+		sub eax, ebx
+		sbb edx, ecx
+		cmc
+		jb short .11
+  .13:		add esi, esi
+		adc edi, edi
+		dec ebp
+		js short .14
+		shr ecx, 1
+		rcr ebx, 1
+		add eax, ebx
+		adc edx, ecx
+		jae short .13
+		jmp short .11
+  .14:		add eax, ebx
+		adc edx, ecx
+  .15:		mov ebx, eax
+		mov ecx, edx
+		mov eax, esi
+		mov edx, edi
+		pop edi
+		pop esi
+		pop ebp
 		ret
 %endif
 
