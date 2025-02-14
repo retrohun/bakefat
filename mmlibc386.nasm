@@ -1495,7 +1495,7 @@ section _TEXT
 		jmp short .next_padding
 %endif  ; %ifdef __NEED_printf_void
 
-; --- syscalls.
+; --- syscalls with instances of `jmp short simple_syscall3_AL' or `jmp short simple_syscall3_WAT'
 
 %ifdef __NEED__lseek
   %ifdef OS_WIN32
@@ -1590,115 +1590,6 @@ section _TEXT
   %endif
 %endif
 
-%ifdef __NEED_filelength64_
-  global filelength64_  ; This is not POSIX, but it is part of the OpenWatcom libc, and it is useful.
-  filelength64_:  ; off64_t __watcall filelength64(int fd);
-		push esi  ; Save.
-		push edi  ; Save.
-		push ebx  ; Save.
-		push ecx  ; Save.
-		push edx  ; Save.
-		xor edx, edx
-		inc edx  ; EDX := whence := SEEK.CUR.
-		xor ecx, ecx
-		xor ebx, ebx  ; ECX:EBX := offset := 0.
-		mov edi, eax  ; Save fd.
-		call lseek64_growany_
-		test edx, edx
-		js short .done
-		push eax
-		push edx  ; Save old file position (EDX:EAX).
-		mov eax, edi ; fd.
-		push byte 2  ; SEEK_END.
-		pop edx  ; EDX := whence := SEEK_END.
-		xor ecx, ecx
-		xor ebx, ebx  ; ECX:EBX := offset := 0
-		mov eax, edi ; fd.
-		call lseek64_growany_
-		test edx, edx
-		pop ecx
-		pop ebx  ; Restore old file position to ECX:EBX (offset).
-		js short .done
-		push eax
-		push edx  ; Save file size (EDX:EAX).
-		xor edx, edx  ; EDX := whence := SEEK_SET.
-		mov eax, edi ; fd.
-		call lseek64_growany_
-		test edx, edx
-		pop esi
-		pop edi  ; Restore file size (ESI:EDI).
-		js short .done
-		mov edx, esi
-		xchg eax, edi  ; EDX:EAX := ESI:EDI (file size); EDI := junk.
-    .done:	pop edx  ; Restore.
-		pop ecx  ; Restore.
-		pop ebx  ; Restore.
-		pop edi  ; Restore.
-		pop esi  ; Restore.
-		ret
-%endif
-
-%ifdef __NEED_lseek_
-  global lseek_
-  ;lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
-  %ifdef OS_WIN32
-    lseek_: equ lseek_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
-  %else
-    lseek_: equ lseek_growany_
-  %endif
-%endif
-
-%ifdef __NEED_lseek64_growany_
-  global lseek64_growany_
-  lseek64_growany_:  ; off64_t __watcall lseek64_growany(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
-  %ifdef OS_WIN32
-		push ecx  ; lDistanceToMoveHigh.
-		push edx  ; dwMoveMethod.
-		push esp  ; lpDistanceToMoveHigh. Initially points to dwMoveMethod.
-		add dword [esp], byte 4  ; Make lpDistanceToMoveHigh point to lDistanceToMoveHigh.
-		push ebx  ; lDistanceToMove.
-		call handle_from_fd  ; EAX --> EAX.
-		push eax  ; hFile.
-		call _SetFilePointer@16  ; Ruins EDX and ECX. It's OK that EDX is ruined.
-		pop edx  ; lDistanceToMoveHigh.
-		cmp eax, byte -1  ; INVALID_SET_FILE_POINTER.
-		jne short .done
-		push eax  ; Save.
-		push edx  ; Save.
-		call _GetLastError@4  ; Ruins EDX and ECX.
-		pop edx  ; Restore.
-		test eax, eax
-		pop eax  ; Restore.
-		jnz short .bad  ; Jump iff not NO_ERROR (== 0).
-		; We want to treat any negative return value as an error
-		; here (and replace it with -1), because off64_t can't
-		; represent positions >=(1>>63).
-		test edx, edx
-		jns short .done
-    .bad:	or eax, byte -1  ; EAX := -1 (indicating error).
-		cdq  ; EDX:EAX ;= -1 (indicating error).
-    .done:	ret
-  %else
-		push edx
-		push ecx
-		push ebx
-		push eax
-		call _lseek64_growany  ; It's simpler to call it here than to change the ABI of it and its dependencies.
-		add esp, byte 4*4  ; Clean up arguments of _lseek64_growany above.
-		ret
-  %endif
-%endif
-
-%ifdef __NEED_lseek64_
-  global lseek64_
-  ;lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
-  %ifdef OS_WIN32
-    lseek64_: equ lseek64_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
-  %else
-    lseek64_: equ lseek64_growany_
-  %endif
-%endif
-
 %ifdef __NEED__time
   %ifndef OS_WIN32
     global _time
@@ -1733,53 +1624,6 @@ section _TEXT
 		jz short .ret
 		mov [edx], eax
     .ret:	ret
-  %endif
-%endif
-
-%ifdef __NEED_time_
-  %ifndef OS_WIN32
-    global time_
-    time_:  ; time_t __watcall time(time_t *tloc);
-    %ifdef __MULTIOS__  ; Already done.
-		cmp byte [___M_is_freebsd], 0
-		jne short .freebsd
-		push ebx  ; Save.
-		xchg ebx, eax  ; EBX := EAX (syscall argument tloc); EAX := junk.
-		push byte 13  ; Linux i386 SYS_time.
-		pop eax
-		int 0x80  ; Linux i386 syscall. Alternatively, Linux i386 SYS_gettimeofday would also work, but SYS_time may be faster.
-		pop ebx  ; Restore.
-		; We assume that SYS_time always suceeds. A negative return value means a timestamp before 1970.
-		ret
-      .freebsd:
-    %endif
-		push edx  ; Save.
-		push eax  ; Save tloc pointer.
-		push eax  ; tv_usec output.
-		push eax  ; tv_sec output.
-		mov eax, esp
-		push byte 0  ; Argument tz of gettimeofday (NULL).
-		push eax  ; Argument tv of gettimeofday.
-		push eax  ; Fake return address for FreeBSD syscall.
-		push byte 116  ; FreeBSD i386 SYS_gettimeofday.
-		pop eax
-		int 0x80  ; FreeBSD i386 syscall.
-		times 3 pop edx  ; Clean up arguments of SYS_gettimeofday above.
-		jnc short .ok
-    %ifdef __NEED__errno
-		mov [_errno], eax
-    %endif
-		sbb eax, eax  ; EAX := -1, indicating error.
-		add esp, byte 3*4
-		jmp short .done
-    .ok:	pop eax  ; tv_sec.
-		pop edx  ; Ignore tv_usec.
-		pop edx  ; tloc pointer.
-		test edx, edx
-		jz short .done
-		mov [edx], eax
-    .done:	pop edx  ; Restore.
-		ret
   %endif
 %endif
 
@@ -1824,94 +1668,6 @@ section _TEXT
   %endif
 %endif
 
-%ifdef __NEED_open_
-  %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
-      %define __NEED___M_fopen_open_
-      %undef __NEED_open_
-      global open_
-      open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
-    %endif
-  %endif
-%endif
-%ifdef __NEED_open_largefile_
-  %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
-      %define __NEED___M_fopen_open_
-      %undef __NEED_open_largefile_
-      global open_largefile_
-      open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
-    %endif
-  %endif
-%endif
-%ifdef __NEED___M_fopen_open_
-  %ifndef __NEED_open_
-    global __M_fopen_open_
-    __M_fopen_open_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
-    ; This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC)
-    %ifdef OS_WIN32  ; !! Move this later, so that it doesn't have to be close to `jmp short simple_syscall3_AL'.
-		push ecx  ; Save.
-		push edx  ; Save.
-		mov eax, fd_handles
-      .next_slot:
-		cmp [eax], byte 0
-		je short .found_slot
-		add eax, byte 4
-		cmp eax, fd_handles.end
-		jne short .next_slot
-		or eax, byte -1
-		jmp short .done  ; Too many open files.
-      .found_slot:
-		push eax  ; Save.
-		push byte 0  ; hTemplateFile.
-		push dword FILE_ATTRIBUTE_NORMAL  ; dwFlagsAndAttributes. This would also work for reading: FILE_ATTRIBUTE_READONLY, no matter whether the file is read-only. This would also work for writing: FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN.
-		cmp dword [esp+7*4], byte 0  ; Linux i386 flags. Is it O_RDONLY?
-		je short .rdonly
-		; If not O_RDONLY, then we assume O_WRONLY|O_CREAT|O_TRUNC. That's valid for ___M_fopen_open.
-		push byte CREATE_ALWAYS  ; dwCreationDisposition.
-		push byte 0  ; lpSecurityAttributes.
-		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
-		push dword GENERIC_WRITE  ; dwDesiredAccess.
-		jmp short .open
-      .rdonly:	push byte OPEN_EXISTING  ; dwCreationDisposition,.
-		push byte 0  ; lpSecurityAttributes.
-		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
-		push dword GENERIC_READ  ; dwDesiredAccess.
-      .open:	push dword [esp+10*4]  ; lpFileName.
-		call _CreateFileA@28  ; Ruins EDX and ECX.
-		pop ecx  ; ECX := slot pointer within fd_handles.
-		cmp eax, byte INVALID_HANDLE_VALUE
-		je short .done
-		mov [ecx], eax  ; Save handle to fd_handles.
-		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
-		sub eax, dword fd_handles
-		shr eax, 2
-      .done:	pop edx  ; Restore.
-		pop ecx  ; Restore.
-		ret
-    %else  ;  %ifdef OS_WIN32
-		push ebx  ; Save for __watcall.
-		push edx  ; Save for __watcall.
-		mov eax, [esp+2*4]  ; pathname.
-		mov ebx, [esp+3*4]  ; mode.
-		mov edx, [esp+4*4]  ; flags.
-      %ifdef __MULTIOS__
-		cmp byte [___M_is_freebsd], 0
-		je short .flags_done
-		; This only fixes the flags with which _fopen(...) calls open(...). The other flags value is O_RDONLY, which doesn't have to be changed.
-		cmp dx, 1101o  ; flags: Linux   (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 100o | 1000o).
-		jne short .flags_done
-		mov dx, 0x601  ; flags: FreeBSD (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 0x200 | 0x400) == 0x601. In the SYSV i386 calling convention, it's OK to modify an argument on the stack.
-        .flags_done:
-      %endif
-		call __M_raw_open_
-		pop edx  ; Restore for __watcall.
-		pop ebx  ; Restore for __watcall.
-		ret
-    %endif
-  %endif
-%endif
-
 %ifdef __NEED___M_raw_open_
   %ifndef OS_WIN32
     __M_raw_open_:  ; int __watcall __M_fopen_open(const char *pathname, int flags, mode_t mode);
@@ -1942,208 +1698,6 @@ section _TEXT
 		call simple_syscall3_AL
 		add esp, byte 4*4  ; Clean up arguments above.
 		ret
-  %endif
-%endif
-
-%ifdef __NEED_ftruncate_
-  global ftruncate_
-  ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
-  %ifdef OS_WIN32
-		push ebx  ; Save.
-		push ecx  ; Save.
-		push eax  ; Save fd.
-		push edx  ; Save length.
-		xor ecx, ecx
-		xor ebx, ebx  ; ECX:EBX := 0 (offset).
-		push byte 1  ; SEEK_CUR.
-		pop edx
-		call lseek64_growany_
-		pop ecx  ; Restore ECX := length.
-		pop ebx  ; Restore EBX := fd.
-		test edx, edx
-		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
-		push edx  ; Save high dword of original position.
-		push eax  ; Save low  dword of original position.
-		xchg eax, ecx
-		cdq  ; EDX:EAX := sign_extend(EAX) == sign_extend(length).
-		push ebx  ; Save fd.
-		call __M_ftruncate64_and_seek_
-		test eax, eax
-		pop eax  ; Restore EAX := fd.
-		pop ebx  ; Restore EBX := low  dword of original position.
-		pop ecx  ; Restore ECX := high dword of original position.
-		jnz short .bad
-		xor edx, edx  ; SEEK_SET.
-		call lseek64_growany_
-		xor eax, eax  ; Indicate success.
-		test edx, edx
-		jns short .done  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
-    .bad:	or eax, byte -1  ; Indicate error.
-    .done:	pop ecx  ; Restore.
-		pop ebx  ; Restore.
-		ret
-  %else
-    %ifdef __MULTIOS__
-		cmp byte [___M_is_freebsd], 0
-		jne short .freebsd
-		push ebx  ; Save.
-		push ecx  ; Save.
-		xchg ebx, eax  ; EBX := EAX (argument fd); EAX := junk.
-		mov ecx, edx  ; ECX := EDX (argument length).
-		push byte 93  ; Linux i386 SYS_ftruncate. Supported on Linux >=1.0.
-		pop eax
-		int 0x80  ; Linux i386 syscall.
-		pop ecx  ; Restore.
-		pop ebx  ; Restore.
-		neg eax
-		jz short .ret
-		jmp short .bad
-      .freebsd:
-    %endif
-		test edx, edx
-		js short .negative
-		push byte 0  ; High dword of syscall argument length.
-		jmp short .done_high
-    .negative:	push byte -1  ; High dword of syscall argument length.
-    .done_high:	push edx  ; Low dword of syscall argument length.
-		push eax  ; Arbitrary pad value for FreeBSD SYS_ftruncate.
-		push eax  ; Syscall argument fd.
-		push eax  ; Fake return address for FreeBSD syscall.
-		xor eax, eax
-		;mov eax, 130  ; FreeBSD old ftruncate(2) with 32-bit offset. int ftruncate(int fd, long length); }.
-		mov al, 201  ; FreeBSD ftruncate(2) with 64-bit offset. FreeBSD 3.0 already had it. int ftruncate(int fd, int pad, off_t length); }
-		int 0x80  ; FreeBSD i386 syscall.
-		lea esp, [esp+5*4]  ; Clean up arguments above.
-		jnc short .ret
-    .bad:
-      %ifdef __NEED__errno
-		mov [_errno], eax
-      %endif
-		or eax, byte -1  ; EAX := -1.
-    .ret:	ret
-  %endif
-%endif
-
-%ifdef __NEED___M_ftruncate64_and_seek_
-  %ifdef OS_WIN32
-    ; Returns 0 on success. Upon success, the current file position is the desired length. Upon error, the file position can be anything, the file size may be anything, and the file may not be grown fully.
-    __M_ftruncate64_and_seek_:  ; static int __watcall __M_ftruncate64_and_seek(off64_t length  /* EDX:EAX */, int fd  /* EBX */);
-		push ecx  ; Save.
-		push esi  ; Save.
-		push edi  ; Save.
-		cmp byte [___M_is_not_winnt], 0
-		je short .winnt_or_not_growing  ; On Windows NT (and derivatives), a _SetFilePointer@16 (lseek64) and a _SetEndOfFile@4 is enough, and newly added bytes will be NUL.
-		; Get old (current) file size to ESI:EDI.
-		push eax  ; Save.
-		push edx  ; Save.
-		push ecx  ; Save.
-		push ebx  ; Save fd.
-		xchg eax, ebx  ; EAX := fd; EBX := junk.
-		xor ecx, ecx
-		xor ebx, ebx  ; ECX:EBX := 0 (offset).
-		push byte 2  ; SEEK_END.
-		pop edx
-		call lseek64_growany_
-		test edx, edx
-		mov esi, edx  ; ECX := EDX (high word of old file size).
-		xchg edi, eax  ; EDI := EAX (low word of old file size).
-		pop ebx  ; Restore fd.
-		pop ecx  ; Restore.
-		pop edx  ; Restore.
-		pop eax  ; Restore.
-		js short .js_bad
-		; Now: ESI:EDI == old file size; EDX:EAX == length.
-		cmp edx, esi
-		jb short .winnt_or_not_growing  ; Desired length is smaller than old size.
-		ja short .grow  ; Desired length is larger than old size, so grow.
-		cmp eax, edi
-		je short .ok  ; Desired length is the same as old size, so do nothing. The current file position is the desired length.
-		ja short .grow  ; Desired length is larger than old size, so grow.
-    .winnt_or_not_growing:
-		push ebx  ; Save fd.
-		mov ecx, edx
-		xchg ebx, eax  ; ECX:EBX := length; EAX := fd.
-		xor edx, edx  ; SEEK_SET.
-		call lseek64_growany_
-		test edx, edx
-		pop eax  ; Restore EBX := fd.
-		js short .js_bad
-		call handle_from_fd  ; EAX --> EAX.
-		push eax  ; hFile.
-		call _SetEndOfFile@4  ; Ruins EDX and ECX.
-		test eax, eax
-		jz short .bad
-		; The current file position is length.
-    .ok:	xor eax, eax  ; Indicate success.
-		jmp short .done
-    .grow:  ; Grow the file (EBX == fd) size from ESI:EDI bytes to EDX:EAX bytes by adding NUL bytes. Append at least 1 byte. Current file position is unknown.
-		push eax  ; Save.
-		push edx  ; Save.
-		push ebx  ; Save fd.
-		xchg eax, ebx  ; EAX := fd; EBX := junk.
-		mov ecx, esi
-		mov ebx, edi  ; ECX:EBX ;= forw start position.
-		xor edx, edx  ; SEEK_SET.
-		call lseek64_growany_
-		test edx, edx
-		pop ebx  ; Restore fd.
-		pop edx  ; Restore.
-		pop eax  ; Restore.
-    .js_bad:	js short .bad
-		; Make the very first write an alignment write: align the
-		; file position (ESI:EDI) to a multiple of nul_buf.size.
-		; This will hopefully make subsequent writes faster.
-		push eax
-		push edi  ; Save.
-		neg edi
-		and edi, dword nul_buf.size-1
-		cmp esi, edx
-		ja short .many_more
-    .many_more:	cmp edi, eax
-		ja short .no_awr
-		test edi, edi
-		jz short .no_awr
-		xchg eax, edi  ; EAX := EDI; EDI := junk.
-		pop edi  ; Restore.
-		push edx
-		push ebx
-		jmp short .got_size
-    .no_awr:  ; An alignment write is not possible. Clean up the stack and enter the main loop of writes.
-		pop edi  ; Restore.
-		pop eax
-    .next_wr:	push eax  ; Save.
-		push edx  ; Save.
-		push ebx  ; Save fd.
-		sub eax, edi
-		jbe short .limit  ; Jump if CF=1 or ZF=1.
-		cmp eax, strict dword nul_buf.size
-		jbe short .got_size
-    .limit:	mov eax, nul_buf.size
-    .got_size:	mov edx, nul_buf
-		xchg ebx, eax  ; EAX := fd; EBX := number of bytes to write.
-		call write_
-		add edi, eax
-		adc esi, byte 0
-		cmp eax, byte 0
-		pop ebx  ; Restore fd.
-		pop edx  ; Restore.
-		pop eax  ; Restore.
-		jle short .bad
-		cmp esi, edx
-		jne short .next_wr
-		cmp edi, eax
-		jne short .next_wr
-		jmp short .ok  ; The current file position is the desired length.
-    .bad:	or eax, byte -1  ; Indicate error.
-    .done:	pop edi  ; Restore.
-		pop esi  ; Restore.
-		pop ecx  ; Restore.
-		ret
-    section _CONST2
-    section _BSS
-    nul_buf: resb 0x1000  ; Must be a power of 2 because of the alignment write.
-    .size: equ $-nul_buf
-    section _TEXT
   %endif
 %endif
 
@@ -2422,8 +1976,456 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
-; --- No more instances of `jmp short simple_syscall3_AL', so we don't have to enforce `short'.
+; --- No more instances of `jmp short simple_syscall3_AL' or `jmp short simple_syscall3_WAT', so we don't have to enforce `short'.
 
+%ifdef __NEED_filelength64_
+  global filelength64_  ; This is not POSIX, but it is part of the OpenWatcom libc, and it is useful.
+  filelength64_:  ; off64_t __watcall filelength64(int fd);
+		push esi  ; Save.
+		push edi  ; Save.
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		xor edx, edx
+		inc edx  ; EDX := whence := SEEK.CUR.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := offset := 0.
+		mov edi, eax  ; Save fd.
+		call lseek64_growany_
+		test edx, edx
+		js short .done
+		push eax
+		push edx  ; Save old file position (EDX:EAX).
+		mov eax, edi ; fd.
+		push byte 2  ; SEEK_END.
+		pop edx  ; EDX := whence := SEEK_END.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := offset := 0
+		mov eax, edi ; fd.
+		call lseek64_growany_
+		test edx, edx
+		pop ecx
+		pop ebx  ; Restore old file position to ECX:EBX (offset).
+		js short .done
+		push eax
+		push edx  ; Save file size (EDX:EAX).
+		xor edx, edx  ; EDX := whence := SEEK_SET.
+		mov eax, edi ; fd.
+		call lseek64_growany_
+		test edx, edx
+		pop esi
+		pop edi  ; Restore file size (ESI:EDI).
+		js short .done
+		mov edx, esi
+		xchg eax, edi  ; EDX:EAX := ESI:EDI (file size); EDI := junk.
+    .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		pop edi  ; Restore.
+		pop esi  ; Restore.
+		ret
+%endif
+
+%ifdef __NEED_lseek_
+  global lseek_
+  ;lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+  %ifdef OS_WIN32
+    lseek_: equ lseek_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
+  %else
+    lseek_: equ lseek_growany_
+  %endif
+%endif
+
+%ifdef __NEED_lseek64_growany_
+  global lseek64_growany_
+  lseek64_growany_:  ; off64_t __watcall lseek64_growany(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
+  %ifdef OS_WIN32
+		push ecx  ; lDistanceToMoveHigh.
+		push edx  ; dwMoveMethod.
+		push esp  ; lpDistanceToMoveHigh. Initially points to dwMoveMethod.
+		add dword [esp], byte 4  ; Make lpDistanceToMoveHigh point to lDistanceToMoveHigh.
+		push ebx  ; lDistanceToMove.
+		call handle_from_fd  ; EAX --> EAX.
+		push eax  ; hFile.
+		call _SetFilePointer@16  ; Ruins EDX and ECX. It's OK that EDX is ruined.
+		pop edx  ; lDistanceToMoveHigh.
+		cmp eax, byte -1  ; INVALID_SET_FILE_POINTER.
+		jne short .done
+		push eax  ; Save.
+		push edx  ; Save.
+		call _GetLastError@4  ; Ruins EDX and ECX.
+		pop edx  ; Restore.
+		test eax, eax
+		pop eax  ; Restore.
+		jnz short .bad  ; Jump iff not NO_ERROR (== 0).
+		; We want to treat any negative return value as an error
+		; here (and replace it with -1), because off64_t can't
+		; represent positions >=(1>>63).
+		test edx, edx
+		jns short .done
+    .bad:	or eax, byte -1  ; EAX := -1 (indicating error).
+		cdq  ; EDX:EAX ;= -1 (indicating error).
+    .done:	ret
+  %else
+		push edx
+		push ecx
+		push ebx
+		push eax
+		call _lseek64_growany  ; It's simpler to call it here than to change the ABI of it and its dependencies.
+		add esp, byte 4*4  ; Clean up arguments of _lseek64_growany above.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_lseek64_
+  global lseek64_
+  ;lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
+  %ifdef OS_WIN32
+    lseek64_: equ lseek64_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
+  %else
+    lseek64_: equ lseek64_growany_
+  %endif
+%endif
+
+%ifdef __NEED_time_
+  %ifndef OS_WIN32
+    global time_
+    time_:  ; time_t __watcall time(time_t *tloc);
+    %ifdef __MULTIOS__  ; Already done.
+		cmp byte [___M_is_freebsd], 0
+		jne short .freebsd
+		push ebx  ; Save.
+		xchg ebx, eax  ; EBX := EAX (syscall argument tloc); EAX := junk.
+		push byte 13  ; Linux i386 SYS_time.
+		pop eax
+		int 0x80  ; Linux i386 syscall. Alternatively, Linux i386 SYS_gettimeofday would also work, but SYS_time may be faster.
+		pop ebx  ; Restore.
+		; We assume that SYS_time always suceeds. A negative return value means a timestamp before 1970.
+		ret
+      .freebsd:
+    %endif
+		push edx  ; Save.
+		push eax  ; Save tloc pointer.
+		push eax  ; tv_usec output.
+		push eax  ; tv_sec output.
+		mov eax, esp
+		push byte 0  ; Argument tz of gettimeofday (NULL).
+		push eax  ; Argument tv of gettimeofday.
+		push eax  ; Fake return address for FreeBSD syscall.
+		push byte 116  ; FreeBSD i386 SYS_gettimeofday.
+		pop eax
+		int 0x80  ; FreeBSD i386 syscall.
+		times 3 pop edx  ; Clean up arguments of SYS_gettimeofday above.
+		jnc short .ok
+    %ifdef __NEED__errno
+		mov [_errno], eax
+    %endif
+		sbb eax, eax  ; EAX := -1, indicating error.
+		add esp, byte 3*4
+		jmp short .done
+    .ok:	pop eax  ; tv_sec.
+		pop edx  ; Ignore tv_usec.
+		pop edx  ; tloc pointer.
+		test edx, edx
+		jz short .done
+		mov [edx], eax
+    .done:	pop edx  ; Restore.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_open_
+  %ifndef OS_WIN32
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+      %define __NEED___M_fopen_open_
+      %undef __NEED_open_
+      global open_
+      open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
+    %endif
+  %endif
+%endif
+%ifdef __NEED_open_largefile_
+  %ifndef OS_WIN32
+    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+      %define __NEED___M_fopen_open_
+      %undef __NEED_open_largefile_
+      global open_largefile_
+      open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+    %endif
+  %endif
+%endif
+%ifdef __NEED___M_fopen_open_
+  %ifndef __NEED_open_
+    global __M_fopen_open_
+    __M_fopen_open_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+    ; This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC)
+    %ifdef OS_WIN32
+		push ecx  ; Save.
+		push edx  ; Save.
+		mov eax, fd_handles
+      .next_slot:
+		cmp [eax], byte 0
+		je short .found_slot
+		add eax, byte 4
+		cmp eax, fd_handles.end
+		jne short .next_slot
+		or eax, byte -1
+		jmp short .done  ; Too many open files.
+      .found_slot:
+		push eax  ; Save.
+		push byte 0  ; hTemplateFile.
+		push dword FILE_ATTRIBUTE_NORMAL  ; dwFlagsAndAttributes. This would also work for reading: FILE_ATTRIBUTE_READONLY, no matter whether the file is read-only. This would also work for writing: FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN.
+		cmp dword [esp+7*4], byte 0  ; Linux i386 flags. Is it O_RDONLY?
+		je short .rdonly
+		; If not O_RDONLY, then we assume O_WRONLY|O_CREAT|O_TRUNC. That's valid for ___M_fopen_open.
+		push byte CREATE_ALWAYS  ; dwCreationDisposition.
+		push byte 0  ; lpSecurityAttributes.
+		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
+		push dword GENERIC_WRITE  ; dwDesiredAccess.
+		jmp short .open
+      .rdonly:	push byte OPEN_EXISTING  ; dwCreationDisposition,.
+		push byte 0  ; lpSecurityAttributes.
+		push byte FILE_SHARE_READ|FILE_SHARE_WRITE  ; dwShareMode. Windows 98 SE fails to open a local file if FILE_SHARE_DELETE is also specified here.
+		push dword GENERIC_READ  ; dwDesiredAccess.
+      .open:	push dword [esp+10*4]  ; lpFileName.
+		call _CreateFileA@28  ; Ruins EDX and ECX.
+		pop ecx  ; ECX := slot pointer within fd_handles.
+		cmp eax, byte INVALID_HANDLE_VALUE
+		je short .done
+		mov [ecx], eax  ; Save handle to fd_handles.
+		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
+		sub eax, dword fd_handles
+		shr eax, 2
+      .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
+		ret
+    %else  ;  %ifdef OS_WIN32
+		push ebx  ; Save for __watcall.
+		push edx  ; Save for __watcall.
+		mov eax, [esp+2*4]  ; pathname.
+		mov ebx, [esp+3*4]  ; mode.
+		mov edx, [esp+4*4]  ; flags.
+      %ifdef __MULTIOS__
+		cmp byte [___M_is_freebsd], 0
+		je short .flags_done
+		; This only fixes the flags with which _fopen(...) calls open(...). The other flags value is O_RDONLY, which doesn't have to be changed.
+		cmp dx, 1101o  ; flags: Linux   (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 100o | 1000o).
+		jne short .flags_done
+		mov dx, 0x601  ; flags: FreeBSD (O_WRONLY | O_CREAT | O_TRUNC) == (1 | 0x200 | 0x400) == 0x601. In the SYSV i386 calling convention, it's OK to modify an argument on the stack.
+        .flags_done:
+      %endif
+		call __M_raw_open_
+		pop edx  ; Restore for __watcall.
+		pop ebx  ; Restore for __watcall.
+		ret
+    %endif
+  %endif
+%endif
+
+%ifdef __NEED_ftruncate_
+  global ftruncate_
+  ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
+  %ifdef OS_WIN32
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push eax  ; Save fd.
+		push edx  ; Save length.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop edx
+		call lseek64_growany_
+		pop ecx  ; Restore ECX := length.
+		pop ebx  ; Restore EBX := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		push edx  ; Save high dword of original position.
+		push eax  ; Save low  dword of original position.
+		xchg eax, ecx
+		cdq  ; EDX:EAX := sign_extend(EAX) == sign_extend(length).
+		push ebx  ; Save fd.
+		call __M_ftruncate64_and_seek_
+		test eax, eax
+		pop eax  ; Restore EAX := fd.
+		pop ebx  ; Restore EBX := low  dword of original position.
+		pop ecx  ; Restore ECX := high dword of original position.
+		jnz short .bad
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		xor eax, eax  ; Indicate success.
+		test edx, edx
+		jns short .done  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		ret
+  %else
+    %ifdef __MULTIOS__
+		cmp byte [___M_is_freebsd], 0
+		jne short .freebsd
+		push ebx  ; Save.
+		push ecx  ; Save.
+		xchg ebx, eax  ; EBX := EAX (argument fd); EAX := junk.
+		mov ecx, edx  ; ECX := EDX (argument length).
+		push byte 93  ; Linux i386 SYS_ftruncate. Supported on Linux >=1.0.
+		pop eax
+		int 0x80  ; Linux i386 syscall.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		neg eax
+		jz short .ret
+		jmp short .bad
+      .freebsd:
+    %endif
+		test edx, edx
+		js short .negative
+		push byte 0  ; High dword of syscall argument length.
+		jmp short .done_high
+    .negative:	push byte -1  ; High dword of syscall argument length.
+    .done_high:	push edx  ; Low dword of syscall argument length.
+		push eax  ; Arbitrary pad value for FreeBSD SYS_ftruncate.
+		push eax  ; Syscall argument fd.
+		push eax  ; Fake return address for FreeBSD syscall.
+		xor eax, eax
+		;mov eax, 130  ; FreeBSD old ftruncate(2) with 32-bit offset. int ftruncate(int fd, long length); }.
+		mov al, 201  ; FreeBSD ftruncate(2) with 64-bit offset. FreeBSD 3.0 already had it. int ftruncate(int fd, int pad, off_t length); }
+		int 0x80  ; FreeBSD i386 syscall.
+		lea esp, [esp+5*4]  ; Clean up arguments above.
+		jnc short .ret
+    .bad:
+      %ifdef __NEED__errno
+		mov [_errno], eax
+      %endif
+		or eax, byte -1  ; EAX := -1.
+    .ret:	ret
+  %endif
+%endif
+
+%ifdef __NEED___M_ftruncate64_and_seek_
+  %ifdef OS_WIN32
+    ; Returns 0 on success. Upon success, the current file position is the desired length. Upon error, the file position can be anything, the file size may be anything, and the file may not be grown fully.
+    __M_ftruncate64_and_seek_:  ; static int __watcall __M_ftruncate64_and_seek(off64_t length  /* EDX:EAX */, int fd  /* EBX */);
+		push ecx  ; Save.
+		push esi  ; Save.
+		push edi  ; Save.
+		cmp byte [___M_is_not_winnt], 0
+		je short .winnt_or_not_growing  ; On Windows NT (and derivatives), a _SetFilePointer@16 (lseek64) and a _SetEndOfFile@4 is enough, and newly added bytes will be NUL.
+		; Get old (current) file size to ESI:EDI.
+		push eax  ; Save.
+		push edx  ; Save.
+		push ecx  ; Save.
+		push ebx  ; Save fd.
+		xchg eax, ebx  ; EAX := fd; EBX := junk.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 2  ; SEEK_END.
+		pop edx
+		call lseek64_growany_
+		test edx, edx
+		mov esi, edx  ; ECX := EDX (high word of old file size).
+		xchg edi, eax  ; EDI := EAX (low word of old file size).
+		pop ebx  ; Restore fd.
+		pop ecx  ; Restore.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+		js short .js_bad
+		; Now: ESI:EDI == old file size; EDX:EAX == length.
+		cmp edx, esi
+		jb short .winnt_or_not_growing  ; Desired length is smaller than old size.
+		ja short .grow  ; Desired length is larger than old size, so grow.
+		cmp eax, edi
+		je short .ok  ; Desired length is the same as old size, so do nothing. The current file position is the desired length.
+		ja short .grow  ; Desired length is larger than old size, so grow.
+    .winnt_or_not_growing:
+		push ebx  ; Save fd.
+		mov ecx, edx
+		xchg ebx, eax  ; ECX:EBX := length; EAX := fd.
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		test edx, edx
+		pop eax  ; Restore EBX := fd.
+		js short .js_bad
+		call handle_from_fd  ; EAX --> EAX.
+		push eax  ; hFile.
+		call _SetEndOfFile@4  ; Ruins EDX and ECX.
+		test eax, eax
+		jz short .bad
+		; The current file position is length.
+    .ok:	xor eax, eax  ; Indicate success.
+		jmp short .done
+    .grow:  ; Grow the file (EBX == fd) size from ESI:EDI bytes to EDX:EAX bytes by adding NUL bytes. Append at least 1 byte. Current file position is unknown.
+		push eax  ; Save.
+		push edx  ; Save.
+		push ebx  ; Save fd.
+		xchg eax, ebx  ; EAX := fd; EBX := junk.
+		mov ecx, esi
+		mov ebx, edi  ; ECX:EBX ;= forw start position.
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		test edx, edx
+		pop ebx  ; Restore fd.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+    .js_bad:	js short .bad
+		; Make the very first write an alignment write: align the
+		; file position (ESI:EDI) to a multiple of nul_buf.size.
+		; This will hopefully make subsequent writes faster.
+		push eax
+		push edi  ; Save.
+		neg edi
+		and edi, dword nul_buf.size-1
+		cmp esi, edx
+		ja short .many_more
+    .many_more:	cmp edi, eax
+		ja short .no_awr
+		test edi, edi
+		jz short .no_awr
+		xchg eax, edi  ; EAX := EDI; EDI := junk.
+		pop edi  ; Restore.
+		push edx
+		push ebx
+		jmp short .got_size
+    .no_awr:  ; An alignment write is not possible. Clean up the stack and enter the main loop of writes.
+		pop edi  ; Restore.
+		pop eax
+    .next_wr:	push eax  ; Save.
+		push edx  ; Save.
+		push ebx  ; Save fd.
+		sub eax, edi
+		jbe short .limit  ; Jump if CF=1 or ZF=1.
+		cmp eax, strict dword nul_buf.size
+		jbe short .got_size
+    .limit:	mov eax, nul_buf.size
+    .got_size:	mov edx, nul_buf
+		xchg ebx, eax  ; EAX := fd; EBX := number of bytes to write.
+		call write_
+		add edi, eax
+		adc esi, byte 0
+		cmp eax, byte 0
+		pop ebx  ; Restore fd.
+		pop edx  ; Restore.
+		pop eax  ; Restore.
+		jle short .bad
+		cmp esi, edx
+		jne short .next_wr
+		cmp edi, eax
+		jne short .next_wr
+		jmp short .ok  ; The current file position is the desired length.
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edi  ; Restore.
+		pop esi  ; Restore.
+		pop ecx  ; Restore.
+		ret
+    section _CONST2
+    section _BSS
+    nul_buf: resb 0x1000  ; Must be a power of 2 because of the alignment write.
+    .size: equ $-nul_buf
+    section _TEXT
+  %endif
+%endif
+
+; --- No more instances of `jmp short simple_syscall3_AL', so we don't have to enforce `short'.
+;
 ; !! Add CONFIG_SIMPLE_OPEN to support only O_RDONLY and O_WRONLY|O_CREAT|O_TRUNC (like in __NEED____M_fopen_open).
 ;
 ; Symbol       Linux   FreeBSD
