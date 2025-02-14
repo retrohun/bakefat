@@ -60,7 +60,9 @@
 ;
 
 %define CONFIG_I386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
-%define CONFIG_FILE_HANDLE_COUNT 32  ; !! Make it configurable. Only OS_WIN32 is affected, others are unlimited.
+%ifndef CONFIG_FILE_HANDLE_COUNT
+  %define CONFIG_FILE_HANDLE_COUNT 32  ; Only OS_WIN32 is affected, others are unlimited.
+%endif
 %ifdef CONFIG_PRINTF_SUPPORT_HEX
   %if CONFIG_PRINTF_SUPPORT_HEX
   %else
@@ -220,6 +222,7 @@ section _TEXT
 %ifdef __NEED_lseek64_
   %ifdef OS_WIN32
     %define __NEED_lseek64_growany_
+    %define __NEED_fd_need_grow_bools
   %else
     %define __NEED_lseek64_growany_
   %endif
@@ -251,6 +254,15 @@ section _TEXT
   %else
     %define __NEED_lseek_growany_
     %define __NEED_ftruncate_
+  %endif
+%endif
+%ifdef __NEED_write_
+  %ifdef OS_WIN32
+    %define __NEED__WriteFile@20
+    %define __NEED_read_write_helper
+    %define __NEED_ftruncate64_grow_here_
+  %else
+    %define __NEED_simple_syscall3_WAT
   %endif
 %endif
 %ifdef __NEED_ftruncate_grow_here_
@@ -300,7 +312,13 @@ section _TEXT
   %define __NEED__SetEndOfFile@4
   %define __NEED____M_is_not_winnt
   %define __NEED_lseek64_growany_
-  %define __NEED_write_
+  %define __NEED___M_write_growany_
+%endif
+%ifdef __NEED___M_write_growany_
+  %ifdef OS_WIN32
+    %define __NEED__WriteFile@20
+    %define __NEED_read_write_helper
+  %endif
 %endif
 %ifdef __NEED_lseek64_growany_
   %ifdef OS_WIN32
@@ -308,14 +326,6 @@ section _TEXT
     %define __NEED__GetLastError@4
   %elifdef __MULTIOS__
     %define __NEED__lseek64_growany
-  %endif
-%endif
-%ifdef __NEED_write_
-  %ifdef OS_WIN32
-    %define __NEED__WriteFile@20
-    %define __NEED_read_write_helper
-  %else
-    %define __NEED_simple_syscall3_WAT
   %endif
 %endif
 %ifdef __NEED_read_
@@ -353,6 +363,7 @@ section _TEXT
 %ifdef __NEED_lseek_
   %ifdef OS_WIN32
     %define __NEED_lseek_growany_
+    %define __NEED_fd_need_grow_bools
   %else
     %define __NEED_lseek_growany_
   %endif
@@ -1288,9 +1299,15 @@ section _TEXT
   %ifdef OS_WIN32
     section _BSS
     ;global fd_handles  ; Not exported to the application.
+    %if CONFIG_FILE_HANDLE_COUNT>=0x80  ; `byte CONFIG_FILE_HANDLE_COUNT' won't work.
+      %error ERROR_CONFIG_FILE_HANDLE_COUNT_TOO_LARGE
+      db 1/0
+    %endif
     fd_handles: resd CONFIG_FILE_HANDLE_COUNT  ; stdin, stdout, stderr and 29 more Win32 HANDLEs.
     .end:
-    .count: equ ($-fd_handles)>>2
+    %ifdef __NEED_fd_need_grow_bools
+      fd_need_grow_bools: resb (CONFIG_FILE_HANDLE_COUNT+3)&~3
+    %endif
     section _TEXT
   %endif
 %endif
@@ -1315,7 +1332,7 @@ section _TEXT
 %ifdef __NEED_handle_from_fd
   %ifdef OS_WIN32
     handle_from_fd:  ; Inputs: EAX: fd; Outputs: EAX: handle or NULL if not found.
-		cmp eax, byte fd_handles.count
+		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
 		jnc short .bad
 		mov eax, [fd_handles+eax*4]
 		jmp short .ret
@@ -1573,6 +1590,31 @@ section _TEXT
   %endif
 %endif
 
+%ifdef __NEED_lseek_
+  global lseek_
+  lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+  %ifdef OS_WIN32
+    %ifdef __NEED_fd_need_grow_bools
+		test ecx, ecx
+		js short .call  ; Don't set the need_grow bit to 1 on a negative offset.
+		test ebx, ebx
+		jz short .call  ; Don't set the need_grow bit to 1 on a zero offset.
+		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
+		jnc short .call
+		push esi  ; Save.
+		push eax  ; Save fd.
+		call lseek_growany_
+		pop esi  ; Restore fd.
+		test eax, eax
+		js short .no_set  ; Only set the need_grow bit after a successful seek.
+		mov byte [fd_need_grow_bools+esi], 1  ; We set the need_grow bit to 1 so that a subsequent write_ will call ftruncate64_grow_here_, which will call write_ to pad the new bytes with NULs on Windows 95.
+      .no_set:	pop esi  ; Restore.
+		ret
+      .call:
+    %endif
+  %endif
+		; Fall through to lseek_growany_.
+%endif
 %ifdef __NEED_lseek_growany_
   global lseek_growany_  ; Like POSIX lseek(2), but if it has to grow the file after the seek, the new bytes can contain anything, not only NUL. DOS and Windows 95 adds arbitrary values, POSIX and Windows NT adds NULs.
   lseek_growany_:  ; off_t __watcall lseek_growany(int fd, off_t offset, int whence);
@@ -1877,11 +1919,32 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   global write_
   write_:  ; ssize_t __watcall write(int fd, const void *buf, size_t count);
   %ifdef OS_WIN32
-		push dword _WriteFile@20
-		jmp short read_write_helper
+    %ifdef __NEED_fd_need_grow_bools
+		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
+		jnc short .call
+		cmp byte [fd_need_grow_bools+eax], 0
+		je short .call
+		; For multithreaded program we should lock from here until the call to read_write_helper.
+		mov byte [fd_need_grow_bools+eax], 0  ; Clear the need_grow bit.
+		push eax  ; Save.
+		call ftruncate64_grow_here_
+		test eax, eax
+		pop eax  ; Restore.
+		jz short .call  ; Jump on EAX == 0. In fact, EAX here can be 0 or -1.
+		ret  ; Returns EAX == -1 on error.
+      .call:
+    %endif
+		; Fall through to __M_write_growany_.
   %else
 		push byte 4  ; FreeBSD i386 and Linux i386 SYS_write.
 		jmp short simple_syscall3_WAT
+  %endif
+%endif
+%ifdef __NEED___M_write_growany_
+  %ifdef OS_WIN32
+    __M_write_growany_:  ; static ssize_t __watcall __M_write_growmany(int fd, const void *buf, size_t count);
+		push dword _WriteFile@20
+		jmp short read_write_helper
   %endif
 %endif
 
@@ -1938,9 +2001,12 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push ecx  ; Save.
 		push edx  ; Save.
 		xor edx, edx
-		cmp eax, byte fd_handles.count
+		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
 		jnc short rnasmoee.bad  ; Jump target works only if EDX == 0.
 		xor ecx, ecx
+    %ifdef __NEED_fd_need_grow_bools
+		mov [fd_need_grow_bools+eax], cl  ; Set the need_grow bit to 0. Useful for subsequent calls to open_.
+    %endif
 		xchg ecx, [fd_handles+eax*4]  ; Set handle to NULL in fd_handles, marking it as free for subsequent open(2).
 		push ecx  ; Old handle.
 		call _CloseHandle@4  ; Ruins EDX and ECX.
@@ -2071,16 +2137,31 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		ret
 %endif
 
-%ifdef __NEED_lseek_
-  global lseek_
-  ;lseek_:  ; off_t __watcall lseek(int fd, off_t offset, int whence);
+%ifdef __NEED_lseek64_
+  global lseek64_
+  lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
   %ifdef OS_WIN32
-    lseek_: equ lseek_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
-  %else
-    lseek_: equ lseek_growany_
+    %ifdef __NEED_fd_need_grow_bools
+		test ecx, ecx
+		js short .call  ; Don't set the need_grow bit to 1 on a negative offset.
+		test ebx, ebx
+		jz short .call  ; Don't set the need_grow bit to 1 on a zero offset.
+		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
+		jnc short .call
+		push esi  ; Save.
+		push eax  ; Save fd.
+		call lseek64_growany_
+		pop esi  ; Restore fd.
+		test edx, edx
+		js short .no_set  ; Only set the need_grow bit after a successful seek.
+		mov byte [fd_need_grow_bools+esi], 1  ; We set the need_grow bit to 1 so that a subsequent write_ will call ftruncate64_grow_here_, which will call write_ to pad the new bytes with NULs on Windows 95.
+      .no_set:	pop esi  ; Restore.
+		ret
+      .call:
+    %endif
   %endif
+		; Fall through to lseek64_growany_.
 %endif
-
 %ifdef __NEED_lseek64_growany_
   global lseek64_growany_
   lseek64_growany_:  ; off64_t __watcall lseek64_growany(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
@@ -2119,16 +2200,6 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		call _lseek64_growany  ; It's simpler to call it here than to change the ABI of it and its dependencies.
 		add esp, byte 4*4  ; Clean up arguments of _lseek64_growany above.
 		ret
-  %endif
-%endif
-
-%ifdef __NEED_lseek64_
-  global lseek64_
-  ;lseek64_:  ; off64_t __watcall lseek64(int fd  /* EAX */, off64_t offset  /* ECX:EBX */, int whence  /* EDX */);
-  %ifdef OS_WIN32
-    lseek64_: equ lseek64_growany_  ; !!! If old_size > new_size, and not on Windows NT, then pad the new bytes with NUL.
-  %else
-    lseek64_: equ lseek64_growany_
   %endif
 %endif
 
@@ -2202,7 +2273,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 %ifdef __NEED___M_fopen_open_
   %ifndef __NEED_open_
     global __M_fopen_open_
-    __M_fopen_open_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+    __M_fopen_open_:  ; int __watcall __M_fopen_open_(const char *pathname, int flags, ... mode_t mode);
     ; This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC)
     %ifdef OS_WIN32
 		push ecx  ; Save.
@@ -2443,7 +2514,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .limit:	mov eax, nul_buf.size
     .got_size:	mov edx, nul_buf
 		xchg ebx, eax  ; EAX := fd; EBX := number of bytes to write.
-		call write_
+		call __M_write_growany_
 		add edi, eax
 		adc esi, byte 0
 		cmp eax, byte 0
