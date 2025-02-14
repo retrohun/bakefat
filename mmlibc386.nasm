@@ -305,7 +305,7 @@ section _TEXT
 %endif
 %ifdef __NEED_ftruncate_
   %ifdef OS_WIN32
-    %define __NEED__SetFilePosition@16
+    %define __NEED__SetFilePointer@16
     %define __NEED__SetEndOfFile@4
   %endif
 %endif
