@@ -224,6 +224,14 @@ section _TEXT
     %define __NEED_lseek64_growany_
   %endif
 %endif
+%ifdef __NEED_ftruncate64_here_
+  %define __NEED_lseek64_growany_
+  %ifdef OS_WIN32
+    %define __NEED___M_ftruncate64_and_seek_
+  %else
+    %define __NEED__ftruncate64
+  %endif
+%endif
 %ifdef __NEED_ftruncate64_
   %ifdef OS_WIN32
     %define __NEED_lseek64_growany_
@@ -2866,6 +2874,38 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		ret
     %endif
   %endif
+%endif
+
+%ifdef __NEED_ftruncate64_here_
+  global ftruncate64_here_  ; Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling.
+  ftruncate64_here_:  ; int __watcall ftruncate64_here(int fd);
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		push eax  ; Save fd.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
+		push byte 1  ; SEEK_CUR.
+		pop edx
+		call lseek64_growany_
+		pop ebx  ; Restore EBX := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+  %ifdef OS_WIN32
+		call __M_ftruncate64_and_seek_
+  %else
+		push edx  ; High dword of length.
+		push eax  ; Low  dword of length.
+		push ebx  ; fd.
+		call _ftruncate64  ; It's simpler to call it here than to change the ABI of it and its dependencies.
+		add esp, byte 3*4  ; Cleanup arguments of _ftruncate64 above.
+  %endif
+		jmp short .done
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop edx  ; Restore.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		ret
 %endif
 
 %ifdef __NEED_ftruncate64_

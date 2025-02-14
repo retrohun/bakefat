@@ -167,12 +167,12 @@ int __watcall remove(const char *pathname);
 #pragma aux remove "unlink_"  /* Not necessary, the libc defines both. */
 int __watcall rename(const char *oldpath, const char *newpath);
 #if _FILE_OFFSET_BITS == 64
-  off64_t __watcall filelength(int fd);  /* Not POSIX, but part of OpenWatcom libc. No 64-bit version provided (yet). */
+  off64_t __watcall filelength(int fd);  /* Not POSIX, but part of OpenWatcom libc. */
 #  pragma aux filelength "filelength64_"
 #else
   __off_t __watcall filelength(int fd);  /* 32-bit position result. See filelength64(...) for 64-bit position result. Not POSIX, but part of OpenWatcom libc. No 64-bit version provided (yet). */
 #endif
-off64_t __watcall filelength64(int fd);  /* Not POSIX, but part of OpenWatcom libc. No 64-bit version provided (yet). */
+off64_t __watcall filelength64(int fd);  /* Not POSIX, but part of OpenWatcom libc. */
 #if _FILE_OFFSET_BITS == 64
   off64_t __watcall lseek(int fd, off64_t offset, int whence);
 #  pragma aux lseek "lseek64_"
@@ -202,6 +202,8 @@ off64_t __watcall lseek64_growany(int fd, off64_t offset, int whence);
   int __watcall ftruncate(int fd, __off_t length);  /* 32-bit length. Use ftruncate64(...) for 64-bit length. */
 #endif
 int __watcall ftruncate64(int fd, off64_t length);
+/* Not POSIX. Equivalent to ftruncate64(fd, lseek64(fd, 0, SEEK_CUR)), but with better error handling. */
+int __watcall ftruncate64_here(int fd);
 
 time_t __watcall time(time_t *tloc);
 
