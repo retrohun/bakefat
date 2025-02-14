@@ -241,7 +241,7 @@ section _TEXT
 %endif
 %ifdef __NEED_ftruncate_
   %ifdef OS_WIN32
-    %define __NEED__SetFilePointer@16
+    %define __NEED_lseek64_growany_
     %define __NEED___M_ftruncate64_and_seek_
   %endif
 %endif
@@ -1943,46 +1943,38 @@ section _TEXT
   global ftruncate_
   ftruncate_:  ; int __watcall ftruncate(int fd, off_t length);
   %ifdef OS_WIN32
+		push ebx  ; Save.
 		push ecx  ; Save.
-		push eax  ; Save fd for __M_ftruncate64_and_seek_.
-		push ebx  ; Save.
-		push edx  ; Save.
+		push eax  ; Save fd.
 		push edx  ; Save length.
-		call handle_from_fd  ; EAX --> EAX.
-		xchg ebx, eax  ; EBX := handle; EAX := junk.
+		xor ecx, ecx
+		xor ebx, ebx  ; ECX:EBX := 0 (offset).
 		push byte 1  ; SEEK_CUR.
-		push byte NULL  ; lpDistanceToMoveHigh.
-		push byte 0  ; lDistanceToMove.
-		push ebx  ; hFile.
-		call _SetFilePointer@16  ; Ruins EDX and ECX.
+		pop edx
+		call lseek64_growany_
 		pop ecx  ; Restore ECX := length.
-		test eax, eax
-		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
+		pop ebx  ; Restore EBX := fd.
+		test edx, edx
+		js short .bad  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+		push edx  ; Save high dword of original position.
+		push eax  ; Save low  dword of original position.
 		xchg eax, ecx
-		cdq
-		; Now: EDX:EAX == length; ECX == original position.
-		push ecx  ; Save original position.
-		push ebx  ; Save.
-		mov ebx, [esp+4*4]  ; fd.
+		cdq  ; EDX:EAX := sign_extend(EAX) == sign_extend(length).
+		push ebx  ; Save fd.
 		call __M_ftruncate64_and_seek_
-		pop ebx  ; Restore.
-		pop ecx  ; Restore original position.
 		test eax, eax
-		jnz .bad
-		push byte 0  ; SEEK_SET.
-		push byte NULL  ; lpDistanceToMoveHigh.
-		push ecx  ; lDistanceToMove.
-		push ebx  ; hFile.
-		call _SetFilePointer@16  ; Ruins EDX and ECX.
-		test eax, eax
-		js short .bad  ; Treat a negative return value as an error here, because off_t can't represent positions >=(1>>31).
-		xor eax, eax  ; Indicate success in return value.
-		jmp short .done
-    .bad:	or eax, byte -1
-    .done:	pop edx  ; Restore.
+		pop eax  ; Restore EAX := fd.
+		pop ebx  ; Restore EBX := low  dword of original position.
+		pop ecx  ; Restore ECX := high dword of original position.
+		jnz short .bad
+		xor edx, edx  ; SEEK_SET.
+		call lseek64_growany_
+		xor eax, eax  ; Indicate success.
+		test edx, edx
+		jns short .done  ; Treat a negative return value as an error here, because off64_t can't represent positions >=(1>>63).
+    .bad:	or eax, byte -1  ; Indicate error.
+    .done:	pop ecx  ; Restore.
 		pop ebx  ; Restore.
-		pop ecx  ; Discard fd.
-		pop ecx  ; Restore.
 		ret
   %else
     %ifdef __MULTIOS__
@@ -2065,8 +2057,7 @@ section _TEXT
 		push ebx  ; Save fd.
 		mov ecx, edx
 		xchg ebx, eax  ; ECX:EBX := length; EAX := fd.
-		push byte 0  ; SEEK_SET.
-		pop edx
+		xor edx, edx  ; SEEK_SET.
 		call lseek64_growany_
 		test edx, edx
 		pop eax  ; Restore EBX := fd.
@@ -2086,8 +2077,7 @@ section _TEXT
 		xchg eax, ebx  ; EAX := fd; EBX := junk.
 		mov ecx, esi
 		mov ebx, edi  ; ECX:EBX ;= forw start position.
-		push byte 0  ; SEEK_SET.
-		pop edx
+		xor edx, edx  ; SEEK_SET.
 		call lseek64_growany_
 		test edx, edx
 		pop ebx  ; Restore fd.
