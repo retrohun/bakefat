@@ -1826,12 +1826,8 @@ section _TEXT
 		sbb eax, eax  ; EAX := -1, indicating error.
     .ok:
   %endif
+		ret
 %endif
-WEAK..___M_start_isatty_stdin:   ; Fallback, tools/elfofix will convert it to a weak symbol.
-WEAK..___M_start_isatty_stdout:  ; Fallback, tools/elfofix will convert it to a weak symbol.
-WEAK..___M_start_flush_stdout:   ; Fallback, tools/elfofix will convert it to a weak symbol.
-WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a weak symbol.
-		ret  ; !! Move this somewhere else if simple_syscall3_AL is not used.
 
 %ifdef __NEED_simple_syscall3_WAT  ; !! Migrate the rest of the syscall functions to __watcall using simple_syscall3_WAT.
   %ifndef OS_WIN32
@@ -1875,9 +1871,13 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .done:	pop edx  ; Restore.
 		pop ebx  ; Restore.
 		pop ecx  ; Restore.
-		ret
   %endif
 %endif
+WEAK..___M_start_isatty_stdin:   ; Fallback, tools/elfofix will convert it to a weak symbol.
+WEAK..___M_start_isatty_stdout:  ; Fallback, tools/elfofix will convert it to a weak symbol.
+WEAK..___M_start_flush_stdout:   ; Fallback, tools/elfofix will convert it to a weak symbol.
+WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a weak symbol.
+		ret
 
 %ifdef __NEED_read_write_helper
   %ifdef OS_WIN32
