@@ -127,6 +127,12 @@
 %else
   %define CONFIG_PRINTF_SUPPORT_HEX  ; printf format specifier `%x' enabled by default. (`%X' isn't.)
 %endif
+%ifdef CONFIG_OPEN_SIMPLE  ; open(2) will support only flags values O_RDONLY and O_WRONLY|O_CREAT|O_TRUNC, not even |O_LARGEFILE. !! Add O_LARGEFILE support for opening >=2 GiB files on Linux.
+  %if CONFIG_OPEN_SIMPLE
+  %else
+    %undef CONFIG_OPEN_SIMPLE
+  %endif
+%endif
 
 %ifndef OS_LINUX
   %ifndef OS_FREEBSD
@@ -1971,26 +1977,30 @@ section _TEXT
 
 %ifdef __NEED__open
   %ifndef OS_WIN32
-    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %ifdef CONFIG_OPEN_SIMPLE
       %define __NEED____M_fopen_open
-      %undef __NEED__open
-      global _open
-      _open:  ; int __cdecl open(const char *pathname, int flags, mode_t mode);
+      %ifdef __NEED__open
+        %undef __NEED__open
+        global _open
+        _open:  ; int __cdecl open(const char *pathname, int flags, mode_t mode);
+      %endif
     %endif
   %endif
 %endif
 %ifdef __NEED__open_largefile
   %ifndef OS_WIN32
-    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %ifdef CONFIG_OPEN_SIMPLE
       %define __NEED____M_fopen_open
-      %undef __NEED__open_largefile
-      global _open_largefile
-      _open_largefile:  ; int __cdecl open_largefile(const char *pathname, int flags, mode_t mode);
+      %ifdef __NEED__open_largefile
+        %undef __NEED__open_largefile
+        global _open_largefile
+        _open_largefile:  ; int __cdecl open_largefile(const char *pathname, int flags, mode_t mode);
+      %endif
     %endif
   %endif
 %endif
 %ifdef __NEED____M_fopen_open
-  %ifndef OS_WIN32
+  %ifndef OS_WIN32  ; Only __M_fopen_open_ is implemented for OS_WIN32.
     %ifndef __NEED__open
       global ___M_fopen_open
       ___M_fopen_open:  ; int __cdecl __M_fopen_open(const char *pathname, int flags, mode_t mode);
@@ -2507,21 +2517,25 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 
 %ifdef __NEED_open_
   %ifndef OS_WIN32
-    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %ifdef CONFIG_OPEN_SIMPLE  ; !! Add support for |O_LARGEFILE.
       %define __NEED___M_fopen_open_
-      %undef __NEED_open_
-      global open_
-      open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
+      %ifdef __NEED_open_
+        %undef __NEED_open_
+        global open_
+        open_:  ; int __watcall open(const char *pathname, int flags, ... mode_t mode);
+      %endif
     %endif
   %endif
 %endif
 %ifdef __NEED_open_largefile_
   %ifndef OS_WIN32
-    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %ifdef CONFIG_OPEN_SIMPLE
       %define __NEED___M_fopen_open_
-      %undef __NEED_open_largefile_
-      global open_largefile_
-      open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+      %ifdef __NEED_open_largefile_
+        %undef __NEED_open_largefile_
+        global open_largefile_
+        open_largefile_:  ; int __watcall open_largefile(const char *pathname, int flags, ... mode_t mode);
+      %endif
     %endif
   %endif
 %endif
@@ -2529,7 +2543,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %ifndef __NEED_open_
     global __M_fopen_open_
     __M_fopen_open_:  ; int __watcall __M_fopen_open_(const char *pathname, int flags, ... mode_t mode);
-    ; This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC)
+    ; This function only works with flags==O_RDONLY or flags==(O_WRONLY|O_CREAT|O_TRUNC).
     %ifdef OS_WIN32
 		push ecx  ; Save.
 		push edx  ; Save.
@@ -2573,9 +2587,9 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     %else  ;  %ifdef OS_WIN32
 		push ebx  ; Save for __watcall.
 		push edx  ; Save for __watcall.
-		mov eax, [esp+2*4]  ; pathname.
-		mov ebx, [esp+3*4]  ; mode.
+		mov eax, [esp+3*4]  ; pathname.
 		mov edx, [esp+4*4]  ; flags.
+		mov ebx, [esp+5*4]  ; mode.
       %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		je short .flags_done
@@ -2797,8 +2811,6 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 
 ; --- No more instances of `jmp short simple_syscall3_AL', so we don't have to enforce `short'.
 ;
-; !! Add CONFIG_SIMPLE_OPEN to support only O_RDONLY and O_WRONLY|O_CREAT|O_TRUNC (like in __NEED____M_fopen_open).
-;
 ; Symbol       Linux   FreeBSD
 ; ----------------------------
 ; O_CREAT        0x40   0x0200
@@ -2816,8 +2828,10 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 %endm
 %macro open_common 0  ; Input: EAX: Linux flags; Output: EAX: junk; EDX: FreeBSD flags.
 		mov edx, eax
+  %ifdef __MULTIOS__
 		cmp byte [___M_is_freebsd], 0
 		je short .flags_done
+  %endif
 		and edx, byte 3  ; O_ACCMODE.
 		and eax, strict dword ~0x8003  ; ~(O_ACCMODE|O_LARGEFILE).
 		open_test_or al, 0x40, dh, 2  ; O_CREAT.
@@ -2842,10 +2856,6 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     %ifdef __NEED____M_fopen_open
       global ___M_fopen_open
       ___M_fopen_open:  ; int __cdecl __M_fopen_open(const char *pathname, int flags, mode_t mode);
-    %endif
-    %ifndef __MULTIOS__
-      %error ASSERT_MULTIOS_NEEDED_FOR_OPEN  ; For non-__MULTIOS__, we implement open(2) elsewhere in this file.
-      db 1/0
     %endif
 		mov eax, [esp+2*4]  ; Get argument flags.
 		open_common
@@ -2932,10 +2942,6 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     __M_open_flag_bytes: db GENERIC_READ>>24, GENERIC_WRITE>>24, (GENERIC_READ|GENERIC_WRITE)>>24, 0  ; 4 bytes aligned to 4. The last 0 doesn't matter.
     section _TEXT
   %else
-    %ifndef __MULTIOS__
-      %error ASSERT_MULTIOS_NEEDED_FOR_OPEN  ; For non-__MULTIOS__, we implement open(2) elsewhere in this file.
-      db 1/0
-    %endif
 		push ebx  ; Save for __watcall.
 		push edx  ; Save for __watcall.
 		mov eax, [esp+4*4]  ; Argument flags.
