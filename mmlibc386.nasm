@@ -1971,7 +1971,7 @@ section _TEXT
 
 %ifdef __NEED__open
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED____M_fopen_open
       %undef __NEED__open
       global _open
@@ -1981,7 +1981,7 @@ section _TEXT
 %endif
 %ifdef __NEED__open_largefile
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED____M_fopen_open
       %undef __NEED__open_largefile
       global _open_largefile
@@ -2507,7 +2507,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 
 %ifdef __NEED_open_
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED___M_fopen_open_
       %undef __NEED_open_
       global open_
@@ -2517,7 +2517,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 %endif
 %ifdef __NEED_open_largefile_
   %ifndef OS_WIN32
-    %ifndef __MULTIOS__  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
+    %if 0  ; Disable this for OS_LINUX, because that needs O_LARGEFILE to be added to the flags.
       %define __NEED___M_fopen_open_
       %undef __NEED_open_largefile_
       global open_largefile_
