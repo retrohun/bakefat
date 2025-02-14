@@ -57,7 +57,6 @@ else
   wlinkargs="form phar rex disable 1014"
   wlinkoutfn="$prog".rex
 fi
-# !!!                                                          f apack1p.obj n apack1pwl.exe >wlink.err 2>&1 || echo "exit code: $?" >>wlink.err
 "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "${src%.*}".obj n "$wlinkoutfn" >"$prog".wlinkerr 2>&1 || exit_code="$?"
 test "$exit_code" = 0 && test -s "$prog".wlinkerr && exit_code=-1
 if test "$exit_code" != 0; then
