@@ -596,7 +596,7 @@ section _TEXT
 		; robust.
     %else  ; Exit gracefully (without segmentation fault) if this FreeBSD i386 program is run on Linux i386.
 		test eax, eax
-		jns freebsd
+		jns short freebsd
 		xor eax, eax
 		inc eax  ; EAX := SYS_exit for Linux i386.
 		;or ebx, byte -1  ; exit(255);  ; No need to set it it still has this value from above.
