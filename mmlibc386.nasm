@@ -1898,7 +1898,7 @@ section _TEXT
       .freebsd:
     %endif
 		mov eax, [esp+2*4]  ; Argument length.
-		cdq  ; EDX:EAX = sign_extend(EAX).
+		cdq  ; EDX:EAX := sign_extend(EAX).
 		push edx
 		push eax
 		push eax  ; Arbitrary pad value.
@@ -2635,7 +2635,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		jne short .bad_linux
 		; Try SYS_lseek. It works on Linux 1.0. Only Linux >=1.2 provides SYS__llseek.
 		mov eax, [esp+0x14+8]  ; Argument offset (low word).
-		cdq  ; EDX:EAX = sign_extend(EAX).
+		cdq  ; EDX:EAX := sign_extend(EAX).
 		cmp edx, [esp+0x14+0xc]  ; Argument offset (high word).
 		xchg ecx, eax  ; ECX := argument offset (low word); EAX := junk.
 		push byte -22  ; Linux i386 -EINVAL.
@@ -2789,7 +2789,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
       %endif
 		; Try SYS_ftruncate. It works on Linux 1.0. Only Linux >=2.4 provides SYS_ftruncate(2).
 		xchg ecx, eax  ; EAX := argument offset (low word); ECX := junk.
-		cdq  ; EDX:EAX = sign_extend(EAX).
+		cdq  ; EDX:EAX := sign_extend(EAX).
 		cmp edx, [esp+6*4]  ; Argument offset (high word).
 		xchg ecx, eax  ; ECX := argument offset (low word); EAX := junk.
 		push byte -22  ; Linux i386 -EINVAL.
