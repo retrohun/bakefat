@@ -38,7 +38,7 @@ Floppy sizes supported by QEMU 2.11.1:
 |   830K|--      |  1660S|  83|    2|  10|D3             | 0xf0||custom|
 |  1040K|1.04MB  |  2080S|  80|    2|  13|D3             | 0xf0||custom|
 |  1120K|1.12MB  |  2240S|  80|    2|  14|D3             | 0xf0||custom|
-|  1200K|1.2MB   |  2400S|  80|    2|  15|D4             | 0xf9|DOS 3.00 added, in QEMU DOS >=3.0|
+|  1200K|1.2MB   |  2400S|  80|    2|  15|D4             | 0xf9|DOS 3.00 added, in QEMU DOS >=3.20|
 |  1476K|1.476MB |  2952S|  82|    2|  18|D4             | 0xf0||custom|
 |  1494K|1.494MB |  2988S|  83|    2|  18|D4             | 0xf0||custom|
 |   880K|--      |  1760S|  80|    2|  11|D5             | 0xf0||custom|
