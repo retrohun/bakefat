@@ -79,7 +79,8 @@ Here is how to use mbrsys:
    disk with image file *myhd.img*, and a single floppy disk with the image
    *fdsys.img*. Set it up to boot from the hard disk (HDD). If asked, use
    legacy (BIOS) booting rather than EFI or secure boot. For DOS, give it 2
-   MiB of memory. For Windows, give it 16 MiB of memory.
+   MiB of memory. For Windows 95--98--ME, give it 16 MiB of memory. For
+   Windows NT--2000--XP, give it 64 MiB of memory.
 
    For QEMU, see the instructions in the next step.
 
@@ -88,7 +89,7 @@ Here is how to use mbrsys:
    To do so in QEMU, use this command:
 
    ```
-   qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -hda myhd.img -fda fdsys.img -boot c
+   qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -drive file=myhd.img,format=raw -drive file=fdsys.img,format=raw,if=floppy -boot c
 `  ```
 
 6. Wait for mbrsys to load in the virtual machine. Upon first boot, in the
