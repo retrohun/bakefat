@@ -8,6 +8,7 @@
  *
  * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
  * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
+ * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
  */
 
 #ifndef _FILE_OFFSET_BITS
@@ -31,6 +32,10 @@
 #  else
 #    include <unistd.h>
 #  endif
+#endif
+
+#ifndef BAKEFAT_VERSION
+#  define BAKEFAT_VERSION 1
 #endif
 
 #undef noreturn
@@ -385,8 +390,42 @@ static const char *sectors_per_cluster_presets_k_10[] = {
 };
 
 static noreturn void usage(ub is_help, const char *argv0) {
-  msg_printf("Usage: %s <flag> [...] <outfile.img>\n", argv0);
-  /* !! Display all supported flags here. */
+  char *p = sbuf;  /* TODO(pts): Check for overflow below. */
+  const char **csp;
+  const char *q, *cluster_size_flags, *hdd_image_size_flags;
+  const struct fat12_preset *prp;
+  /* TODO(pts): Precompute this help message, making the code shorter. */
+  for (prp = fat12_presets; prp != ARRAY_END(fat12_presets); ++prp) {
+    for (q = prp->name, *p++ = ' '; *q != '\0'; *p++ = *q++) {}
+  }
+  *p++ = '\0';
+  hdd_image_size_flags = p;
+  for (csp = hdd_size_presets_m_21; csp != ARRAY_END(hdd_size_presets_m_21); ++csp) {
+    if (strcmp(*csp, "1024M") == 0) break;
+    for (q = *csp, *p++ = ' '; *q != '\0'; *p++ = *q++) {}
+  }
+  for (csp = hdd_size_presets_g_30; csp != ARRAY_END(hdd_size_presets_g_30); ++csp) {
+    if (strcmp(*csp, "1024G") == 0) break;
+    for (q = *csp, *p++ = ' '; *q != '\0'; *p++ = *q++) {}
+  }
+  for (csp = hdd_size_presets_t_40; csp != ARRAY_END(hdd_size_presets_t_40); ++csp) {
+    for (q = *csp, *p++ = ' '; *q != '\0'; *p++ = *q++) {}
+  }
+  *p++ = '\0';
+  cluster_size_flags = p;
+  for (csp = sectors_per_cluster_presets_k_10; csp != ARRAY_END(sectors_per_cluster_presets_k_10); ++csp) {
+    for (q = *csp, *p++ = ' '; *q != '\0'; *p++ = *q++) {}
+  }
+  *p = '\0';
+  /* This help message doesn't contain some alternate spellings of some flags. */
+  msg_printf("bakefat: bootable external FAT disk image creator v%d\n"
+             "Usage: %s <flag> [...] <outfile.img>\n"
+             "Floppy image size flags:%s\n"
+             "HDD image size flags:%s\n"
+             "Cluster size flags: 512B%s\n"
+             "Filesystem type flags: FAT12 FAT16 FAT32\n"
+             "FAT count flags: 1FAT 2FATS\n",
+             BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
 }
 
