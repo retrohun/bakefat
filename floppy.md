@@ -124,6 +124,6 @@ About the media descriptor byte:
   actually stored in the BPB.
 * https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#FATID
   contains a FAT ID to geometry table.
-* 0xf8: Also used by HDDs.
+* 0xf8: Used by some HDDs and some nonstandard floppies.
 * 0xef: Designated for use with custom floppy and superfloppy formats where the geometry is defined in the BPB.
 * !! Try 1.2MB (0xf9) it in QEMU 2.11, DOS 3.00 and 3.10.
