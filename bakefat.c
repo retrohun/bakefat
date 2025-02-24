@@ -2,9 +2,12 @@
  * bakefat.c: bootable external FAT hard disk image creator for DOS and Windows 3.1--95--98--ME
  * by pts@fazekas.hu at Thu Feb  6 14:32:22 CET 2025
  *
- * Compilr with OpenWatcom C compiler, minilibc686 for Linux i386: minicc -march=i386 -Werror -Wno-n201 -o bakefat bakefat.c
+ * Compile with OpenWatcom C compiler, minilibc686 for Linux i386: minicc -march=i386 -Werror -Wno-n201 -o bakefat bakefat.c
  * Compile with GCC for Unix: gcc -ansi -pedantic -W -Wall -Wno-overlength-strings -Werror -s -O2 -o bakefat bakefat.c
  * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
+ *
+ * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
+ * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
  */
 
 #ifndef _FILE_OFFSET_BITS
@@ -30,11 +33,25 @@
 #  endif
 #endif
 
+#undef noreturn
 #ifdef __GNUC__
 #  ifndef inline
 #    define inline __inline__  /* For `gcc -ansi -pedantic'. */
 #  endif
+#  define noreturn __attribute__((__noreturn__))
+#else
+#  ifdef __WATCOMC__
+#    define noreturn __declspec(noreturn)
+#  else
+#    define noreturn
+#  endif
 #endif
+
+#undef  ARRAY_SIZE
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+#undef  ARRAY_END
+#define ARRAY_END(a) ((a) + (sizeof(a) / sizeof((a)[0])))
 
 #ifndef O_BINARY
 #  define O_BINARY 0
@@ -219,16 +236,16 @@ static void set_file_size_scount(ud scount) {
   }
 }
 
-/* FAT12 preset indexes. */
+/* FAT12 preset indexes. Negative to distinguish from log2_hdd_size. */
 enum fat12_preset_idx_t {
-  P_160K = 0,
-  P_180K = 1,
-  P_320K = 2,
-  P_360K = 3,
-  P_720K = 4,
-  P_1200K = 5,
-  P_1440K = 6,
-  P_2880K = 7
+  P_160K = -1,
+  P_180K = -2,
+  P_320K = -3,
+  P_360K = -4,
+  P_720K = -5,
+  P_1200K = -6,
+  P_1440K = -7,
+  P_2880K = -8
 };
 
 struct fat12_preset {
@@ -237,74 +254,79 @@ struct fat12_preset {
   uw head_count;
   ub sectors_per_track;
   ub media_descriptor;
-  ub sectors_per_cluster;
+  ub log2_sectors_per_cluster;
   uw rootdir_entry_count;
   uw cluster_count;
   uw expected_sectors_per_fat;
 };
 
 static const struct fat12_preset fat12_presets[] = {
-    /* P_160K: */  { "160k",  320, 1, 8, 0xfe, 1, 64, 313, 1 },
-    /* P_180K: */  { "180k",  360, 1, 9, 0xfc, 1, 64, 351, 2 },
-    /* P_320K: */  { "320k",  640, 2, 8, 0xff, 2, 112, 315, 1 },
-    /* P_360K: */  { "360k",  720, 2, 9, 0xfd, 2, 112, 354, 2 },
-    /* P_720K: */  { "720k",  1440, 2, 9, 0xf9, 2, 112, 713, 3 },
-    /* P_1200K: */ { "1200k", 2400, 2, 15, 0xf9, 1, 224, 2371, 7 },
-    /* P_1440K: */ { "1440k", 2880, 2, 18, 0xf0, 1, 224, 2847, 9 },
-    /* P_2880K: */ { "2880k", 5760, 2, 36, 0xf0, 2, 240, 2863, 9 },
+    /* ~P_160K: */  { "160K",  320, 1, 8, 0xfe, 0, 64, 313, 1 },
+    /* ~P_180K: */  { "180K",  360, 1, 9, 0xfc, 0, 64, 351, 2 },
+    /* ~P_320K: */  { "320K",  640, 2, 8, 0xff, 1, 112, 315, 1 },
+    /* ~P_360K: */  { "360K",  720, 2, 9, 0xfd, 1, 112, 354, 2 },
+    /* ~P_720K: */  { "720K",  1440, 2, 9, 0xf9, 1, 112, 713, 3 },
+    /* ~P_1200K: */ { "1200K", 2400, 2, 15, 0xf9, 0, 224, 2371, 7 },
+    /* ~P_1440K: */ { "1440K", 2880, 2, 18, 0xf0, 0, 224, 2847, 9 },
+    /* ~P_2880K: */ { "2880K", 5760, 2, 36, 0xf0, 1, 240, 2863, 9 },
 };
 
 enum boot_signature_t { BOOT_SIGNATURE = 0xaa55, EXTENDED_BOOT_SIGNATURE = 0x29 };
 
 static const char oem_name[] = "MSDOS5.0";
 
+static noreturn void fatal0(const char *msg) {
+  msg_printf("fatal: %s\n", msg);
+  exit(2);
+}
+
+static void check_rootdir_entry_count(uw rootdir_entry_count) {
+  /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
+  if ((ub)rootdir_entry_count & 0xf) fatal0("BAD_ROOTDIR_ENTRY_COUNT");
+}
+
 static void create_fat12(enum fat12_preset_idx_t pri) {
-  const struct fat12_preset *pr = &fat12_presets[pri];
+  const struct fat12_preset *pr = &fat12_presets[~pri];
   const ud fat_volume_id = 0x1234abcd;  /* 1234-ABCD. !! Make it configurable. */
   const ud fat_sector_size = 0x200;
   const ub fat_fat_count = 2;  /* !! Make this configurable. */
   const ub fat_reserved_sector_count = 1;  /* Only the boot sector. */
   const ud fat_hidden_sector_count = 0;  /* No sectors preceding the boot sector. */
-  const ud fat_sectors_per_fat = (((((ud)pr->cluster_count+2)*3+1)>>1)+0x1ff)>>9;  /* Good formula for FAT12. We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
-  const ud fat_rootdir_sector_count = ((ud)pr->rootdir_entry_count+0xf)>>4;
-  const ud fat_fat_sec_ofs = fat_hidden_sector_count+fat_reserved_sector_count;
-  const ud fat_rootdir_sec_ofs = fat_fat_sec_ofs+fat_fat_count*fat_sectors_per_fat;
-  const ud fat_clusters_sec_ofs = fat_rootdir_sec_ofs+fat_rootdir_sector_count;
-  const ud fat_minimum_sector_count = fat_clusters_sec_ofs+(ud)pr->cluster_count*(ud)pr->sectors_per_cluster-fat_hidden_sector_count;
-  const ud fat_maximum_sector_count = fat_minimum_sector_count+(ud)pr->sectors_per_cluster-1;
+  const ud fat_sectors_per_fat = (((((ud)pr->cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* Good formula for FAT12. We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
+  const ud fat_rootdir_sector_count = ((ud)pr->rootdir_entry_count + 0xf) >> 4;
+  const ud fat_fat_sec_ofs = fat_hidden_sector_count + fat_reserved_sector_count;
+  const ud fat_rootdir_sec_ofs = fat_fat_sec_ofs + fat_fat_count * fat_sectors_per_fat;
+  const ud fat_clusters_sec_ofs = fat_rootdir_sec_ofs + fat_rootdir_sector_count;
+  const ud fat_minimum_sector_count = fat_clusters_sec_ofs + ((ud)pr->cluster_count << pr->log2_sectors_per_cluster) - fat_hidden_sector_count;
+  const ud fat_maximum_sector_count = fat_minimum_sector_count + (ud)(1 << pr->log2_sectors_per_cluster) - 1;
 
-  if ((ud)pr->rootdir_entry_count & 0xf) {
-    msg_printf("fatal: BAD_ROOTDIR_ENTRY_COUNT\n");  /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
-    exit(2);
-  }
-  if (fat_sectors_per_fat != pr->expected_sectors_per_fat) {
-    msg_printf("fatal: BAD_SECTORS_PER_FAT\n");  /* Bad number of sectors per FAT. */
-    exit(2);
-  }
-  if (pr->sector_count < fat_minimum_sector_count) {
-    msg_printf("fatal: TOO_MANY_SECTORS\n");  /* Too many sectors. */
-    exit(2);
-  }
-  if (pr->sector_count > fat_maximum_sector_count) {
-    msg_printf("fatal: TOO_FEW_SECTORS\n");  /* Too few sectors. */
-    exit(2);
-  }
-  if (sizeof(pr->sector_count) > 2 && pr->sector_count > 0xffff - (sizeof(pr->sector_count) <= 2)) {
-    msg_printf("fatal: TOO_MANY_SECTOS_FOR_FAT12\n");  /* Too many sectors, not supported by our FAT12 boot code. */
-    exit(2);
-  }
+#  ifdef DEBUG
+    msg_printf("info: sector_count %lu <= %lu <= %lu\n", (unsigned long)fat_minimum_sector_count, (unsigned long)pr->sector_count, (unsigned long)fat_maximum_sector_count);
+#  endif
+  check_rootdir_entry_count(pr->rootdir_entry_count);
+  /* Bad number of sectors per FAT. */
+  if (fat_sectors_per_fat != pr->expected_sectors_per_fat) fatal0("BAD_SECTORS_PER_FAT");
+  /* Too many sectors. */
+  if (pr->sector_count < fat_minimum_sector_count) fatal0("TOO_MANY_SECTORS");
+  /* Too few sectors. */
+  if (pr->sector_count > fat_maximum_sector_count) fatal0("TOO_FEW_SECTORS");
+  /* Too many sectors, not supported by our FAT12 boot code. */
+  if (sizeof(pr->sector_count) > 2 && pr->sector_count > 0xffff - (sizeof(pr->sector_count) <= 2)) fatal0("TOO_MANY_SECTORS_FOR_FAT12");
+  /* Some operating systems detect more clusters than this as FAT16. */
+  if (pr->cluster_count > 0xfee) fatal0("TOO_MANY_CLUSTERS_FOR_FAT12");
+
   memcpy(sbuf, boot_bin + BOOT_OFS_FAT12, 0x200);
   /* .header: jmp strict short .boot_code */
   /* nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Who uses it? It is ignored by .boot_code. */
   s = sbuf + 3;  /* More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system */
   memcpy(s, oem_name, 8); s += 8;
   dw(fat_sector_size);  /* The value 0x200 is hardcoded in boot_sector.boot_code, both explicitly and implicitly. */
-  db(pr->sectors_per_cluster);
+  db((ub)1 << pr->log2_sectors_per_cluster);
   dw(fat_reserved_sector_count);
   db(fat_fat_count);  /* Must be 1 or 2. MS-DOS 6.22 supports only 2. Windows 95 DOS mode supports 1 or 2. */
   dw(pr->rootdir_entry_count);  /* Each FAT directory entry is 0x20 bytes. Each sector is 0x200 bytes. */
   dw(sizeof(pr->sector_count) > 2 && pr->sector_count > 0xffff - (sizeof(pr->sector_count) <= 2)? 0 : pr->sector_count);  /* 0 doesn't happen for our FAT12. */
-  db(pr->media_descriptor);   /* 0xf8 for HDD. 0xf8 is also used for some floppy disk formats as well. */
+  db(pr->media_descriptor);   /* 0xf8 for HDD. 0xf8 is also used by some nonstandard floppy disk formats. */
   dw(fat_sectors_per_fat);
   /* FreeDOS 1.2 `dir c:' needs a correct value for .sectors_per_track and .head_count. MS-DOS 6.22 and FreeDOS 1.3 ignore these values (after boot). */
   dw(pr->sectors_per_track);  /* Track == cylinder. Dummy nonzero value to pacify mtools(1). Here it is not overwritten with value from BIOS int 13h AH == 8. */
@@ -335,27 +357,166 @@ static void create_fat12(enum fat12_preset_idx_t pri) {
   set_file_size_scount(pr->sector_count);
 }
 
+static const char *hdd_size_presets_m_21[] = {
+    "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", "1024M",
+    "2048M", "4096M", "8192M", "16384M", "32768M", "65536M", "131072M",
+    "262144M", "524288M", "1048576M", "2097152M",
+};
+
+static const char *hdd_size_presets_g_30[] = {
+    "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G",
+    "1024G", "2048G",
+};
+
+static const char *hdd_size_presets_t_40[] = {
+    "1T", "2T",
+};
+
+static const char *sectors_per_cluster_presets_b_9[] = {
+    "512B", "1024B", "2048B", "4096B", "8192B", "16384B", "32768B",
+};
+
+static const char *sectors_per_cluster_presets_s_9[] = {
+    "1S", "2S", "4S", "8S", "16S", "32S", "64S",
+};
+
+static const char *sectors_per_cluster_presets_k_10[] = {
+    "1K", "2K", "4K", "8K", "16K", "32K",
+};
+
+static noreturn void usage(ub is_help, const char *argv0) {
+  msg_printf("Usage: %s <flag> [...] <outfile.img>\n", argv0);
+  /* !! Display all supported flags here. */
+  exit(is_help ? 0 : 1);
+}
+
+static noreturn void bad_usage0(const char *msg) {
+  msg_printf("fatal: %s\n", msg);
+  exit(1);
+}
+
 int main(int argc, char **argv) {
-  char is_help;
+  const char **arg, **arge, **argfn = NULL;
+  const char *flag;
+  ub is_help;
+  int log2_size = 0;  /* Unspecified. */
+  ub log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
+  ub fat_fstype = 0;  /* 0 (unspecified), 12, 16 or 32. */
+  ub fat_fat_count = 0;  /* 0 (unspecified), 1 or 2. */
+  const struct fat12_preset *prp;
+  const char **csp;
   (void)argc;
 #  ifdef __MMLIBC386__
   stdout_fd = STDERR_FILENO;  /* For msg_printf(...). */
 #  endif
-  is_help = argv[1] && strcmp(argv[1], "--help") == 0;
-  if (is_help || !argv[1] || !argv[2] || argv[3]) {
-    msg_printf("Usage: %s <preset> <outfile.img>\n", argv[0]);
-    exit(is_help ? 0 : 1);
+  is_help = argv[1] && strcasecmp(argv[1], "--help") == 0;
+  for (arge = (const char **)argv + 1; ; ++arge) {
+    if (!*arge) {  /* The last argument is the output image file name (<outfile.img>). */
+      argfn = --arge;
+      if ((char**)argfn != argv && argfn[0][0] == '-') argfn = ++arge;
+      break;
+    }
+    if (strcmp(*arge, "--") == 0) {
+      argfn = arge + 1;
+      break;
+    }
   }
-  if (strcasecmp(argv[1], "720k") != 0) {
-    msg_printf("fatal: unknown preset: %s\n", argv[1]);
-    exit(2);
+  if (is_help || (char**)argfn == argv) usage(is_help, argv[0]);
+  for (arg = (const char **)argv + 1; arg != arge; ++arg) {
+    /* !! Add number-of-FATs flag. */
+    /* !! Add operating system compatibility flag (e.g. FAT32, 1FAT). */
+    /* !! Make fat_rootdir_entry_count configurable. */
+    /* !! Make floppy parameters configurable. */
+    for (flag = *arg; *flag == '-' || *flag == '/'; ++flag) {}  /* Skip leading - and / characters in flag. */
+    for (prp = fat12_presets; prp != ARRAY_END(fat12_presets); ++prp) {
+      if (strcasecmp(flag, prp->name) == 0) {
+        if (log2_size != 0) { error_multiple_size:
+          bad_usage0("multiple image sizes specified");
+        }
+        log2_size = ~(prp - fat12_presets);
+        goto next_flag;
+      }
+    }
+    for (csp = hdd_size_presets_m_21; csp != ARRAY_END(hdd_size_presets_m_21); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_m_21 + 21; goto next_flag; }
+    }
+    for (csp = hdd_size_presets_g_30; csp != ARRAY_END(hdd_size_presets_g_30); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_g_30 + 30; goto next_flag; }
+    }
+    for (csp = hdd_size_presets_t_40; csp != ARRAY_END(hdd_size_presets_t_40); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_t_40 + 40; goto next_flag; }
+    }
+    for (csp = sectors_per_cluster_presets_b_9; csp != ARRAY_END(sectors_per_cluster_presets_b_9); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) {
+        if (log2_sectors_per_cluster != (ub)-1) { error_multiple_spc:
+          bad_usage0("multiple sectors-per-cluster specified");
+        }
+        log2_sectors_per_cluster = csp - sectors_per_cluster_presets_b_9 + 9 - 9;
+        goto next_flag;
+      }
+    }
+    for (csp = sectors_per_cluster_presets_s_9; csp != ARRAY_END(sectors_per_cluster_presets_s_9); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) { if (log2_sectors_per_cluster) goto error_multiple_spc; log2_sectors_per_cluster = csp - sectors_per_cluster_presets_s_9 + 9 - 9; goto next_flag; }
+    }
+    for (csp = sectors_per_cluster_presets_k_10; csp != ARRAY_END(sectors_per_cluster_presets_k_10); ++csp) {
+      if (strcasecmp(flag, *csp) == 0) { if (log2_sectors_per_cluster) goto error_multiple_spc; log2_sectors_per_cluster = csp - sectors_per_cluster_presets_k_10 + 10 - 9; goto next_flag; }
+    }
+    if (strcasecmp(flag, "FAT12") == 0) {
+      if (fat_fstype && fat_fstype != 12) { error_multiple_fat_fstype:
+        bad_usage0("multiple FAT type flags specified");
+      }
+      fat_fstype = 12;
+    } else if (strcasecmp(flag, "FAT16") == 0) {
+      if (fat_fstype && fat_fstype != 16) goto error_multiple_fat_fstype;
+      fat_fstype = 16;
+    } else if (strcasecmp(flag, "FAT32") == 0) {
+      if (fat_fstype && fat_fstype != 32) goto error_multiple_fat_fstype;
+      fat_fstype = 32;
+    } else if (strcasecmp(flag, "1FAT") == 0 || strcasecmp(flag, "1F") == 0) {
+      if (fat_fstype && fat_fstype != 12) { error_multiple_fat_fat_count:
+        bad_usage0("multiple FAT FAT counts specified");
+      }
+      fat_fat_count = 1;
+    } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
+      if (fat_fstype && fat_fstype != 16) goto error_multiple_fat_fat_count;
+      fat_fat_count = 2;
+    } else {
+      msg_printf("fatal: unknown command-line flag: %s\n", flag);
+      exit(1);
+    }
+   next_flag: ;
   }
-  sfn = argv[2];
+  if (!*argfn) bad_usage0("output filename not specified");
+  if (argfn[1]) bad_usage0("multiple output filenames specified");
+  sfn = *argfn;
+
+  if (log2_size < 0) {
+    if (log2_sectors_per_cluster != (ub)-1) bad_usage0("cannot change sectors-per-cluster for floppy images");  /* !! */
+    if (!fat_fstype) fat_fstype = 12;
+    if (fat_fstype != 12) bad_usage0("only FAT12 is supported for floppy images");  /* !! */
+    if (!fat_fat_count) fat_fat_count = 2;
+    if (fat_fat_count != 2) bad_usage0("only 2FATS is supported for floppy images");  /* !! */
+  } else {
+    if (!log2_size) bad_usage0("image size not specified");
+    if (fat_fat_count == 0) {  /* Autodetect. */
+      fat_fat_count = 2;  /* For compatibility with MS-DOS <=6.22. */
+    }
+    if (fat_fstype == 12) bad_usage0("FAT12 is not supported for hard disk images");
+    if (fat_fstype == 0) {  /* Autodetect. */
+      fat_fstype = log2_size <= 31 ? 16 : 32;  /* Use FAT16 for up to 2 GiB, use FAT32 for anything larger. FAT16 doesn't support more than 2 GiB. */
+    }
+    if (log2_sectors_per_cluster == (ub)-1) bad_usage0("sectors-per-cluster not specified");  /* !! recommend automatically. */
+    bad_usage0("!! FAT16 not supported");
+  }
   if ((sfd = open(sfn, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666)) < 0) {
     msg_printf("fatal: error opening output file: %s\n", sfn);
     exit(2);
   }
-  create_fat12(P_720K);
+  if (log2_size < 0) {  /* FAT12 floppy image. */
+    create_fat12(log2_size);
+  } else {
+    bad_usage0("FAT16 and FAT32 not supported yet");
+  }
   close(sfd);
   return 0;
 }
