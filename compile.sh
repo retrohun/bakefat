@@ -25,6 +25,6 @@ od -An -to1 -v boot.bin fat12b.bin >boot.od
 "$busybox1" awk '{gsub(/ /,"\\");print"\""$0"\""}' <boot.od >boot.h  # awk gsub(...) in our busybox is buggy, use $busybox1 instead.
 rm -f boot.od
 
-sh mmlibcc.sh --sh-script-mydir . -o bakefat bakefat.c  # -march=i386 -Werror -Wno-n201
+sh mmlibcc.sh --sh-script-mydir . "$@" -o bakefat bakefat.c  # -march=i386 -Werror -Wno-n201
 
 : "$0" OK.
