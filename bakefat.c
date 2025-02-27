@@ -9,6 +9,8 @@
  * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
  * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
  * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
+ * !! Exclude FAT header and partition table from boot_bin, making it shorter.
+ * !! Move relevant comments from fat16m.nasm to here.
  */
 
 #ifndef _FILE_OFFSET_BITS
@@ -65,6 +67,9 @@
 #ifdef __MMLIBC386__
 #  define msg_printf printf_void
 #else
+#  ifdef __GNUC__
+    __attribute__((__format__(__printf__, 1, 2)))
+#  endif
   static void msg_printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -170,6 +175,7 @@ static const char boot_bin[] =
 #  include "boot.h"
 ;
 
+/* Byte offsets in boot_bin. */
 #define BOOT_OFS_MBR 0
 #define BOOT_OFS_FAT32 0x200
 #define BOOT_OFS_FAT16 0x400
@@ -183,6 +189,7 @@ typedef char assert_sizeof_boot_bin[sizeof(boot_bin) == 4 * 0x200 + 4 * 2 + 1 ? 
 typedef uint8_t ub;
 typedef uint16_t uw;
 typedef uint32_t ud;
+typedef int32_t sd;
 
 /* GCC >= 4.6 and Clang >= 3.2 have __BYTE_ORDER__ defined. */
 #if defined(__i386) || defined(__i386__) || defined(__amd64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64) || defined(__386) || \
@@ -241,21 +248,10 @@ static void set_file_size_scount(ud scount) {
   }
 }
 
-/* FAT12 preset indexes. Negative to distinguish from log2_hdd_size. */
-enum fat12_preset_idx_t {
-  P_160K = -1,
-  P_180K = -2,
-  P_320K = -3,
-  P_360K = -4,
-  P_720K = -5,
-  P_1200K = -6,
-  P_1440K = -7,
-  P_2880K = -8
-};
-
 struct fat_common_params {
   ud sector_count;
   ud cluster_count;
+  ud sectors_per_fat;
   uw head_count;
   uw sectors_per_track;
   uw rootdir_entry_count;
@@ -267,8 +263,9 @@ struct fat_params {
   struct fat_common_params fcp;
   ud hidden_sector_count;
   ud volume_id;
+  ud cylinder_count;
+  ud geometry_sector_count;
   uw reserved_sector_count;
-  uw sectors_per_fat;
   uw default_rootdir_entry_count;
   uw default_reserved_sector_count;
   ub default_log2_sectors_per_cluster;
@@ -280,19 +277,18 @@ struct fat_params {
 struct fat12_preset {
   const char *name;
   struct fat_common_params fcp;
-  uw expected_sectors_per_fat;
 };
 
 /* !! Add superfloppy formats. */
 static const struct fat12_preset fat12_presets[] = {
-    /* ~P_160K: */  { "160K",  {  320,  313, 1,  8,  64, 0xfe, 0 }, 1 },
-    /* ~P_180K: */  { "180K",  {  360,  351, 1,  9,  64, 0xfc, 0 }, 2 },
-    /* ~P_320K: */  { "320K",  {  640,  315, 2,  8, 112, 0xff, 1 }, 1 },
-    /* ~P_360K: */  { "360K",  {  720,  354, 2,  9, 112, 0xfd, 1 }, 2 },
-    /* ~P_720K: */  { "720K",  { 1440,  713, 2,  9, 112, 0xf9, 1 }, 3 },
-    /* ~P_1200K: */ { "1200K", { 2400, 2371, 2, 15, 224, 0xf9, 0 }, 7 },
-    /* ~P_1440K: */ { "1440K", { 2880, 2847, 2, 18, 224, 0xf0, 0 }, 9 },
-    /* ~P_2880K: */ { "2880K", { 5760, 2863, 2, 36, 240, 0xf0, 1 }, 9 },
+    { "160K",  {  320,  313, 1, 1,  8,  64, 0xfe, 0 } },
+    { "180K",  {  360,  351, 2, 1,  9,  64, 0xfc, 0 } },
+    { "320K",  {  640,  315, 1, 2,  8, 112, 0xff, 1 } },
+    { "360K",  {  720,  354, 2, 2,  9, 112, 0xfd, 1 } },
+    { "720K",  { 1440,  713, 3, 2,  9, 112, 0xf9, 1 } },
+    { "1200K", { 2400, 2371, 7, 2, 15, 224, 0xf9, 0 } },
+    { "1440K", { 2880, 2847, 9, 2, 18, 224, 0xf0, 0 } },
+    { "2880K", { 5760, 2863, 9, 2, 36, 240, 0xf0, 1 } },
 };
 
 enum boot_signature_t { BOOT_SIGNATURE = 0xaa55, EXTENDED_BOOT_SIGNATURE = 0x29 };
@@ -302,89 +298,6 @@ static const char oem_name[] = "MSDOS5.0";
 static noreturn void fatal0(const char *msg) {
   msg_printf("fatal: %s\n", msg);
   exit(2);
-}
-
-static void check_rootdir_entry_count(uw rootdir_entry_count) {
-  /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
-  if ((ub)rootdir_entry_count & 0xf) fatal0("BAD_ROOTDIR_ENTRY_COUNT");
-}
-
-static void check_log2_sectors_per_cluster(ub log2_sectors_per_cluster) {
-  /* Rootdir entry count must be between 0 (512B) and 6 (32K). */
-  if (log2_sectors_per_cluster > 6) fatal0("BAD_SECTORS_PER_CLUSTER");
-}
-
-static void create_fat12(enum fat12_preset_idx_t pri) {
-  const struct fat12_preset *pr = &fat12_presets[~pri];
-  const ud fat_volume_id = 0x1234abcd;  /* 1234-ABCD. !! Make it configurable. */
-  const ud fat_sector_size = 0x200;
-  const ub fat_fat_count = 2;  /* !! Make this configurable. */
-  const ub fat_reserved_sector_count = 1;  /* Only the boot sector. */
-  const ud fat_hidden_sector_count = 0;  /* No sectors preceding the boot sector. */
-  const ud fat_sectors_per_fat = (((((ud)pr->fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* Good formula for FAT12. We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
-  const ud fat_rootdir_sector_count = ((ud)pr->fcp.rootdir_entry_count + 0xf) >> 4;
-  const ud fat_fat_sec_ofs = fat_hidden_sector_count + fat_reserved_sector_count;
-  const ud fat_rootdir_sec_ofs = fat_fat_sec_ofs + fat_fat_count * fat_sectors_per_fat;
-  const ud fat_clusters_sec_ofs = fat_rootdir_sec_ofs + fat_rootdir_sector_count;
-  const ud fat_minimum_sector_count = fat_clusters_sec_ofs + ((ud)pr->fcp.cluster_count << pr->fcp.log2_sectors_per_cluster) - fat_hidden_sector_count;
-  const ud fat_maximum_sector_count = fat_minimum_sector_count + (ud)(1 << pr->fcp.log2_sectors_per_cluster) - 1;
-
-#  ifdef DEBUG
-    msg_printf("info: sector_count %lu <= %lu <= %lu\n", (unsigned long)fat_minimum_sector_count, (unsigned long)pr->fcp.sector_count, (unsigned long)fat_maximum_sector_count);
-#  endif
-  check_rootdir_entry_count(pr->fcp.rootdir_entry_count);
-  check_log2_sectors_per_cluster(pr->fcp.log2_sectors_per_cluster);
-  /* Bad number of sectors per FAT. */
-  if (fat_sectors_per_fat != pr->expected_sectors_per_fat) fatal0("BAD_SECTORS_PER_FAT");
-  /* Too many sectors. */
-  if (pr->fcp.sector_count < fat_minimum_sector_count) fatal0("TOO_MANY_SECTORS");
-  /* Too few sectors. */
-  if (pr->fcp.sector_count > fat_maximum_sector_count) fatal0("TOO_FEW_SECTORS");
-  /* Too many sectors, not supported by our FAT12 boot code. */
-  if (sizeof(pr->fcp.sector_count) > 2 && pr->fcp.sector_count > 0xffff - (sizeof(pr->fcp.sector_count) <= 2)) fatal0("TOO_MANY_SECTORS_FOR_FAT12");
-  /* Some operating systems detect more clusters than this as FAT16. */
-  if (pr->fcp.cluster_count > 0xfee) fatal0("TOO_MANY_CLUSTERS_FOR_FAT12");
-
-  memcpy(sbuf, boot_bin + BOOT_OFS_FAT12, 0x200);
-  /* .header: jmp strict short .boot_code */
-  /* nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Who uses it? It is ignored by .boot_code. */
-  s = sbuf + 3;  /* More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system */
-  memcpy(s, oem_name, 8); s += 8;
-  dw(fat_sector_size);  /* The value 0x200 is hardcoded in boot_sector.boot_code, both explicitly and implicitly. */
-  db((ub)1 << pr->fcp.log2_sectors_per_cluster);
-  dw(fat_reserved_sector_count);
-  db(fat_fat_count);  /* Must be 1 or 2. MS-DOS 6.22 supports only 2. Windows 95 DOS mode supports 1 or 2. */
-  dw(pr->fcp.rootdir_entry_count);  /* Each FAT directory entry is 0x20 bytes. Each sector is 0x200 bytes. */
-  dw(sizeof(pr->fcp.sector_count) > 2 && pr->fcp.sector_count > 0xffff - (sizeof(pr->fcp.sector_count) <= 2)? 0 : pr->fcp.sector_count);  /* 0 doesn't happen for our FAT12. */
-  db(pr->fcp.media_descriptor);   /* 0xf8 for HDD. 0xf8 is also used by some nonstandard floppy disk formats. */
-  dw(fat_sectors_per_fat);
-  /* FreeDOS 1.2 `dir c:' needs a correct value for .sectors_per_track and .head_count. MS-DOS 6.22 and FreeDOS 1.3 ignore these values (after boot). */
-  dw(pr->fcp.sectors_per_track);  /* Track == cylinder. Dummy nonzero value to pacify mtools(1). Here it is not overwritten with value from BIOS int 13h AH == 8. */
-  dw(pr->fcp.head_count);  /* Dummy nonzero value to pacify mtools(1). Here it is not overwritten with value from BIOS int 13h AH == 8. */
-  dd(fat_hidden_sector_count); /* Occupied by MBR and previous partitions. */
-  dd(pr->fcp.sector_count);
-  if (0) {  /* These are already correct in boot_bin. */
-    db(0);  /* fat_drive_number. */
-    db(0);  /* fat_var_unused. Can be used as a temporary variable in .boot_code. */
-    db(EXTENDED_BOOT_SIGNATURE);
-    dd(fat_volume_id);
-    memcpy(s, "NO NAME    ", 11); s += 11;  /* volume_label. */
-    memcpy(s, "FAT12   ", 8); s += 8;  /* fstype. */
-  }
-
-  /* Patch some constants in the boot code. */
-  s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 0); dw(fat_clusters_sec_ofs);
-  s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 2); dw(pr->fcp.rootdir_entry_count);
-  s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 4); dw(fat_rootdir_sec_ofs);
-  s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 6); dw(fat_fat_sec_ofs);
-
-  write_sector(0);
-  memset(s = sbuf, 0, sizeof(sbuf));
-  db(pr->fcp.media_descriptor);
-  dw(-1);
-  write_sector(fat_fat_sec_ofs);
-  if (fat_fat_count > 1) write_sector(fat_fat_sec_ofs + fat_sectors_per_fat);
-  set_file_size_scount(pr->fcp.sector_count);
 }
 
 static const char *hdd_size_presets_m_21[] = {
@@ -413,6 +326,271 @@ static const char *sectors_per_cluster_presets_s_9[] = {
 static const char *sectors_per_cluster_presets_k_10[] = {
     "1K", "2K", "4K", "8K", "16K", "32K",
 };
+
+enum ptype_t {  /* Partition type. */
+  PTYPE_EMPTY = 0,
+  PTYPE_FAT12 = 1,
+  PTYPE_FAT16_LESS_THAN_32MIB = 4,
+  PTYPE_EXTENDED = 5,
+  PTYPE_FAT16 = 6,
+  PTYPE_HPFS_NTFS_EXFAT = 7,
+  PTYPE_FAT32 = 0xb,
+  PTYPE_FAT32_LBA = 0xc,
+  PTYPE_FAT16_LBA = 0xe,
+  PTYPE_EXTENDED_LBA = 0xf,
+  PTYPE_MINIX_OLD = 0x80,
+  PTYPE_MINIX = 0x81,
+  PTYPE_LINUX_SWAP = 0x82,
+  PTYPE_LINUX = 0x83,
+  PTYPE_LINUX_EXTENDED = 0x85,
+  PTYPE_LINUX_LVM = 0x8e,
+  PTYPE_LINUX_RAID_AUTO = 0xfd
+};
+
+enum pstatus_t {  /* Partition status. */
+  PSTATUS_INACTIVE = 0,
+  PSTATUS_ACTIVE = 0x80
+};
+
+static void create_fat(const struct fat_params *fpp) {
+  /* !!! Add VHD footer for non-FAT12. */
+  const ud fat_sector_size = 0x200;
+  const ud fat_rootdir_sector_count = (ud)fpp->fcp.rootdir_entry_count >> 4;
+  const ud fat_fat_sec_ofs = fpp->hidden_sector_count + fpp->reserved_sector_count;
+  const ud fat_rootdir_sec_ofs = fat_fat_sec_ofs + ((ud)fpp->fcp.sectors_per_fat << (fpp->fat_count - 1U));
+  const ud fat_clusters_sec_ofs = fat_rootdir_sec_ofs + fat_rootdir_sector_count;
+  const uw first_boot_sector_copy_sec_ofs = (fpp->fat_fstype != 32 || fpp->reserved_sector_count <= 2U) ? 0U : fpp->reserved_sector_count < 6U ? 2U : 6U;  /* 6 was created by Linux mkfs.vfat(1), also for Windows XP. */
+#ifdef DEBUG
+  /* We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
+    const ud min_sectors_per_fat =
+        fpp->fat_fstype == 32 ? (fpp->fcp.cluster_count + (2U + 0x7fU)) >> 7 :
+        fpp->fat_fstype == 16 ? (fpp->fcp.cluster_count + (2U + 0xffU)) >> 8 :
+        /* FAT12: */ ((((fpp->fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;
+    const ud min_sector_count = fat_clusters_sec_ofs - fpp->hidden_sector_count + ((ud)fpp->fcp.cluster_count << fpp->fcp.log2_sectors_per_cluster);
+    const ud max_sector_count = min_sector_count + (ud)(1 << fpp->fcp.log2_sectors_per_cluster) - 1;
+    /* Rootdir entry count must be a multiple of 0x10.  ; Some DOS msload boot code relies on this (i.e. rounding down == rounding up). */
+    if (fpp->fat_fstype != 12 && fpp->fat_fstype != 16 && fpp->fat_fstype != 32) fatal0("ASSERT_BAD_FAT_FSTYPE");
+    if ((fpp->fat_count - 1U) > 2U - 1U) fatal0("ASSERT_BAD_FAT_COUNT");
+    if ((sd)fpp->fcp.cluster_count <= (fpp->fat_fstype == 32 ? 1 : 0)) fatal0("ASSERT_BAD_CLUSTER_COUNT");  /* We count the root directory cluster in FAT32. */
+    if (fpp->fat_fstype == 12 && fpp->fcp.cluster_count > 0xff4) fatal0("TOO_MANY_CLUSTERS_FOR_FAT12");
+    if (fpp->fat_fstype == 16 && fpp->fcp.cluster_count > 0xfff4) fatal0("TOO_MANY_CLUSTERS_FOR_FAT16");
+    if (fpp->fat_fstype == 32 && fpp->fcp.cluster_count > 0xffffff5) fatal0("TOO_MANY_CLUSTERS_FOR_FAT32");
+    if ((sd)fat_fat_sec_ofs < 0 || fat_rootdir_sec_ofs <= fat_fat_sec_ofs || fat_clusters_sec_ofs < fat_rootdir_sec_ofs) fatal0("FAT_TOO_LARGE_BEFORE_CLUSTERS");
+    if (fpp->fcp.log2_sectors_per_cluster > 6) fatal0("ASSERT_BAD_SECTORS_PER_CLUSTER");
+    if (fpp->fcp.cluster_count > (0xffffffffU >> fpp->fcp.log2_sectors_per_cluster)) fatal0("ASSERT_TOO_MANY_SECTORS_IN_CLUSTERS");  /* !! Use ...UL suffix for >16-bit integer literals. */
+    if ((fpp->fcp.cluster_count << fpp->fcp.log2_sectors_per_cluster) > fpp->fcp.sector_count - fat_clusters_sec_ofs) fatal0("ASSERT_TOO_FEW_SECTORS");  /* This can signify an overflow in sector_count calculations. */
+    if (fpp->fcp.sectors_per_fat < min_sectors_per_fat) fatal0("ASSERT_BAD_SECTORS_PER_FAT");
+    if (fpp->fcp.rootdir_entry_count & 0xf) fatal0("ASSERT_BAD_ROOTDIR_ENTRY_COUNT");
+    if (fpp->fat_fstype == 16 && fpp->fcp.cluster_count < 0xff7) fatal0("TOO_FEW_CLUSTERS_FOR_FAT16");
+    if (fpp->fat_fstype == 32 && fpp->fcp.cluster_count < 0xfff5) fatal0("TOO_FEW_CLUSTERS_FOR_FAT32");
+    if (fpp->fcp.sector_count < min_sector_count) fatal0("TOO_FEW_SECTORS");
+    if (fpp->fat_fstype == 12 && fpp->fcp.sector_count > max_sector_count) fatal0("TOO_MANY_SECTORS");  /* Compared to fat12_preset. */
+    if (fpp->hidden_sector_count > 0xffffU - fpp->reserved_sector_count) fatal0("TOO_MANY_HIDDEN_SECTORS");  /* It has to fit to a 16-bit word in the FAT header in the MBR. */
+    if (fpp->fcp.sectors_per_track == 0 || fpp->hidden_sector_count % fpp->fcp.sectors_per_track) fatal0("BAD_HIDDEN_SECTOR_COUNT_MODULO");  /* MS-DOS <=6.x requires that hidden_sector_count is a multiple of sectors_per_track. */
+#else
+    (void)fatal0;  /* !! Remove definition if not used for DEBUG. */
+#endif
+
+  set_file_size_scount(fpp->geometry_sector_count);
+
+  /* Write boot sector containing the FAT header (superblock). */
+  memcpy(sbuf, boot_bin + (fpp->fat_fstype == 12 ? BOOT_OFS_FAT12 : fpp->fat_fstype == 16 ? BOOT_OFS_FAT16 : BOOT_OFS_FAT32), 0x200);
+  /* .header: jmp strict short .boot_code */
+  /* nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Who uses it? It is ignored by .boot_code. */
+  s = sbuf + 3;  /* More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system */
+  memcpy(s, oem_name, 8); s += 8;
+  dw(fat_sector_size);  /* The value 0x200 is hardcoded in boot_sector.boot_code, both explicitly and implicitly. */
+  db((ub)1 << fpp->fcp.log2_sectors_per_cluster);
+  dw(fpp->reserved_sector_count);
+  db(fpp->fat_count);  /* Must be 1 or 2. MS-DOS 6.22 supports only 2. Windows 95 DOS mode supports 1 or 2. */
+  dw(fpp->fcp.rootdir_entry_count);  /* Each FAT directory entry is 0x20 bytes. Each sector is 0x200 bytes. */
+  dw(fpp->fcp.sector_count - fpp->hidden_sector_count > 0xffffU ? 0 : fpp->fcp.sector_count - fpp->hidden_sector_count);  /* 0 doesn't happen for our FAT12. */
+  db(fpp->fcp.media_descriptor);   /* 0xf8 for HDD. 0xf8 is also used for some floppy disk formats as well. */
+  dw(fpp->fat_fstype == 32 ? 0 : fpp->fcp.sectors_per_fat);
+  /* FreeDOS 1.2 `dir c:' needs a correct value for .sectors_per_track and .head_count. MS-DOS 6.22 and FreeDOS 1.3 ignore these values (after boot). */
+  dw(fpp->fcp.sectors_per_track);  /* Track == cylinder. Dummy nonzero value to pacify mtools(1). Here it is not overwritten with value from BIOS int 13h AH == 8. */
+  dw(fpp->fcp.head_count);  /* Dummy nonzero value to pacify mtools(1). Here it is not overwritten with value from BIOS int 13h AH == 8. */
+  dd(fpp->hidden_sector_count); /* Occupied by MBR and previous partitions. */
+  dd(fpp->fcp.sector_count - fpp->hidden_sector_count);
+  if (fpp->fat_fstype == 32) {  /* FAT32. */
+    dd(fpp->fcp.sectors_per_fat);
+    dw(0);  /* mirroring_flags, as created by Linux mkfs.vfat(1). */
+    dw(0);  /* .version. */
+    dd(2);  /* .rootdir_start_cluster. */
+    dw(fpp->reserved_sector_count > 1U ? 1U : 0U);  /* .fsinfo_sec_ofs. */
+    dw(first_boot_sector_copy_sec_ofs);
+    s += 12;  /* .reserved. The values are 0. */
+  }
+#ifdef DEBUG
+  if (0) {  /* These are already correct in boot_bin. */
+    db(0);  /* fat_drive_number. */
+    db(0);  /* fat_var_unused. Can be used as a temporary variable in .boot_code. */
+    db(EXTENDED_BOOT_SIGNATURE);
+  } else {
+    s += 3;
+  }
+#else
+  s += 3;
+#endif
+  dd(fpp->volume_id);
+#ifdef DEBUG
+  if (0) {  /* These are already correct in boot_bin. */
+    memcpy(s, "NO NAME    ", 11); s += 11;  /* volume_label. */
+    memcpy(s, fpp->fat_count == 12 ? "FAT12   " : fpp->fat_count == 16 ? "FAT16   " : "FAT132   ", 8);  /* fstype. */
+  }
+#endif
+  if (fpp->fat_fstype == 12) {
+    s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 0); dw(fat_clusters_sec_ofs);
+    s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 2); dw(fpp->fcp.rootdir_entry_count);
+    s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 4); dw(fat_rootdir_sec_ofs);
+    s = sbuf + gw(boot_bin + BOOT_OFS_FAT12_OFSS + 6); dw(fat_fat_sec_ofs);
+  }
+  write_sector(fpp->hidden_sector_count);
+  if (first_boot_sector_copy_sec_ofs) write_sector(fpp->hidden_sector_count + first_boot_sector_copy_sec_ofs);
+
+  if (fpp->hidden_sector_count) {  /* Write the MBR. */
+    s = sbuf;
+    memcpy(s, boot_bin + BOOT_OFS_MBR, 3);  /* The jump instruction to the MBR boot code. */
+    if (fpp->fat_fstype != 32) memset(s + 0x3e, '-', 0x5a - 0x3e);
+    memcpy(s + 0x5a, boot_bin + BOOT_OFS_MBR + 0x5a, 0x200 - 0x5a);
+    s += 0xe; dw(fpp->hidden_sector_count + fpp->reserved_sector_count);  /* reserved_sector_count. */
+    s += 3; dw(fpp->fcp.sector_count > 0xffffU ? 0 : fpp->fcp.sector_count);
+    s += 0x1c - 0x15; dd(0);  /* hidden_sector_count. */
+    dd(fpp->fcp.sector_count);
+    if (fpp->fat_fstype == 32) {
+      s += 0x30 - 0x24;
+      dw(fpp->hidden_sector_count + (fpp->reserved_sector_count ? 1U : 0U));  /* .fsinfo_sec_ofs. */
+      dw(fpp->hidden_sector_count + first_boot_sector_copy_sec_ofs);
+    }
+    s = sbuf + 0x1be;  /* Partition 1. */
+    db(PSTATUS_ACTIVE);  /* Status (PSTATUS.*: 0: inactive, 0x80: active (bootable)). */
+    db(0);  /* CHS head of first sector. */
+    dw(0);  /* CHS cylinder and sector of first sector. */
+    db(fpp->fat_fstype == 32 ? PTYPE_FAT32_LBA : PTYPE_FAT16);  /* Partition type (PTYPE.*). */
+    db(0);  /* CHS head of last sector. */
+    dw(0);  /* CHS cylinder and sector of last sector. */
+    dd(fpp->hidden_sector_count);  /* Sector offset (LBA) of the first sector. */
+    dd(fpp->fcp.sector_count - fpp->hidden_sector_count);  /* Number of sectors. */
+    write_sector(0);
+  }
+
+  if (fpp->fat_fstype == 32 && fpp->reserved_sector_count > 1U) {  /* Write fsinfo sector for FAT32. https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#FS_Information_Sector */
+    memset(s = sbuf, 0, sizeof(sbuf));
+    dd('R' | 'R' << 8 | 'a' << 16 | 'A' << 24);  /* .header. */
+    s += 0x1e0;  /* .reserved. The values are 0. */
+    dd('r' | 'r' << 8 | 'A' << 16 | 'a' << 24);  /* .signature2. */
+    dd(fpp->fcp.cluster_count - 1);  /* .free_cluster_count. -1 because the root directory occupies 1 cluster. */
+    dd(2);  /* .most_recently_allocated_cluster_ofs. The root directory cluster. */
+    s += 0xc + 2;  /* .reserved2 and first 2 bytes of .signature3. The values are 0. */
+    dw(BOOT_SIGNATURE);
+    write_sector(fpp->hidden_sector_count + 1U);
+  }
+
+  /* Write the first sector of each FAT. */
+  memset(s = sbuf, 0, sizeof(sbuf));
+  db(fpp->fcp.media_descriptor);
+  dw(-1);
+  if (fpp->fat_fstype == 16) {
+    db(-1);
+  } else if (fpp->fat_fstype == 32) {
+    db(0xf);  /* First special cluster pointer: 0xffffff8, the low byte being the media_descriptor. */
+    dd(0xfffffff);  /* Second special cluster pointer. */
+    dd(0xffffff8);  /* Indicates empty root directory. */
+  }
+  write_sector(fat_fat_sec_ofs);
+  if (fpp->fat_count > 1) write_sector(fat_fat_sec_ofs + fpp->fcp.sectors_per_fat);
+}
+
+static ud align_fat(struct fat_params *fpp, ud fat_clusters_sec_ofs) {
+  ud sector_delta = 0;
+  if (fpp->fcp.log2_sectors_per_cluster >= 3U && (fat_clusters_sec_ofs & 7U)) {  /* Simple alignment: align clusters to a multiple of 4K. */  /* !! Do better alignment, even for the FAT table and the root directory. */
+    sector_delta = -fpp->fcp.log2_sectors_per_cluster & 7U;
+    fpp->reserved_sector_count += sector_delta;
+  }
+  return sector_delta;
+}
+
+/* Adjust geometry for rounding in QEMU 2.11.1.
+ *
+ * Inputs: fpp->fcp.sector_count, fpp->fcp.cluster_count, fpp->fcp.log2_sectors_per_cluster, fpp->fat_fstype.
+ * Outputs: fpp->fcp.geometry_sector_count, fpp->fcp.sector_count, fpp->fcp.cluster_count, fpp->cylinder_count (cyls), fpp->head_count (heads), fpp->sectors_per_track (secs).
+ */
+static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs) {
+  ud cyls, heads, hs;
+  ub mod;
+  fpp->fcp.sectors_per_track = 63U;
+  fpp->fcp.head_count = heads =
+      (fpp->fcp.sector_count <= 1024U * 16U * 63U) ? 16U :
+      (fpp->fcp.sector_count <= 2048U * 32U * 63U) ? 32U :
+      (fpp->fcp.sector_count <= 4096U * 64U * 63U) ? 64U :
+      (fpp->fcp.sector_count <= 8192U * 128U * 63U) ? 128U : 255U;
+  hs = fpp->fcp.head_count * 63U;
+  cyls = (fpp->fcp.sector_count + hs - 1U) / hs;
+  fpp->cylinder_count = cyls =
+      (heads == 32U && cyls < 543U) ? 543U :
+      (heads == 64U && cyls < 527U) ? 527U :
+      (heads == 128U && cyls < 519U) ? 519U :
+      (heads == 255U && cyls < 517U) ? 517U : cyls;
+  fpp->geometry_sector_count = cyls * (fpp->fcp.head_count * 63U);
+#  ifdef DEBUG
+    msg_printf("info: geometry: sector_count=0x%lx geometry_sector_count=0x%lx CHS=%lu:%u:%u\n", (unsigned long)fpp->fcp.sector_count, (unsigned long)fpp->geometry_sector_count, (unsigned long)fpp->cylinder_count, (unsigned)fpp->fcp.head_count, (unsigned)fpp->fcp.sectors_per_track);
+    if (fpp->fcp.sector_count > fpp->geometry_sector_count) fatal0("ASSERT_GEOMETRY_BAD_SECTOR_COUNT");
+#  endif
+ fix_sector_count:
+  mod = fpp->fcp.sector_count % 63U;
+  if (mod) {  /* Mtools requires sector_count-hidden_sector_count to be a multiple of sectors_per_track. */
+    /* Here we can choose to round fpp->fcp.sector_count up or down, thus
+     * keeping (up or down), increasing (up) or decreasing (down)
+     * fpp->fcp.cluster_count.
+     */
+    hs = fpp->fcp.sector_count - fat_clusters_sec_ofs;
+    if (((hs + (63U - mod)) >> fpp->fcp.log2_sectors_per_cluster) == (hs >> fpp->fcp.log2_sectors_per_cluster)) {
+#      ifdef DEBUG
+        msg_printf("info: geometry: rounding up without cluster count increase\n");
+#      endif
+     simple_round_up:  /* Rounding up doesn't increase fpp->fcp.cluster_count, so we round up. */
+      fpp->fcp.sector_count += 63U - mod;
+    } else if (((hs - mod) >> fpp->fcp.log2_sectors_per_cluster) < (fpp->fat_fstype == 16 ? 0xff7U : 0xfff5U)) {  /* Rounding down would make the filesystem too small, so we round up, possibly increasing fpp->fcp.sectors_per_fat. */
+      /* This affects FAT16 2M, FAT32 32M, FAT32 64M. */
+      hs = fpp->fcp.sector_count + 63U - mod;
+      mod = fpp->fcp.log2_sectors_per_cluster;
+      heads = (hs - fat_clusters_sec_ofs) >> mod;
+      if ((fpp->fcp.sectors_per_fat << (8 - (fpp->fat_fstype == 32))) - 2U < heads) {  /* The new fpp->fcp.cluster_count doesn't fit in the old FAT table. */
+        /* This affects FAT16 2M, FAT32 32M, FAT32 64M. */
+#        ifdef DEBUG
+          msg_printf("info: geometry: rounding up with sectors-per-fat increase\n");
+#endif
+        ++fpp->fcp.sectors_per_fat;
+        fat_clusters_sec_ofs += fpp->fat_count;
+        fat_clusters_sec_ofs += align_fat(fpp, fat_clusters_sec_ofs);  /* Realign because fat_clusters_sec_ofs has changed. Also ets fpp->fcp.sector_count. */
+        fpp->fcp.sector_count = fat_clusters_sec_ofs + (fpp->fcp.cluster_count << mod);
+        goto fix_sector_count;
+      }
+      /* TODO(pts): Add tests. This is never reached. */
+#      ifdef DEBUG
+        msg_printf("info: geometry: rounding up with cluster count increase: new cluster_count=0x%lx sector_count=0x%lx\n", (unsigned long)heads, (unsigned long)hs);
+#      endif
+      fpp->fcp.cluster_count = heads;
+      fpp->fcp.sector_count = hs;
+    } else {  /* Round down, decreasing fpp->fcp.cluster_count and maybe decreasing fpp->fcp.sector_count. */
+      /* This affects most size configurations. */
+      fpp->fcp.sector_count -= mod;
+      mod = fpp->fcp.log2_sectors_per_cluster;
+      fpp->fcp.cluster_count = (fpp->fcp.sector_count - fat_clusters_sec_ofs) >> mod;
+      fpp->fcp.sector_count = fat_clusters_sec_ofs + (fpp->fcp.cluster_count << mod);
+#      ifdef DEBUG
+        msg_printf("info: geometry: rounding down: new cluster_count=0x%lx sector_count=0x%lx\n", (unsigned long)fpp->fcp.cluster_count, (unsigned long)fpp->fcp.sector_count);
+#      endif
+      mod = fpp->fcp.sector_count % 63U;
+      if (mod) goto simple_round_up;
+    }
+  }
+#  ifdef DEBUG
+    if (fpp->fcp.cluster_count > (fpp->fat_fstype == 16 ? 0xfff4U : 0xffffff5U)) fatal0("ASSERT_TOO_MANY_CLUSTERS_AFTER_ROUNDING");
+    if (fpp->fcp.sector_count > fpp->geometry_sector_count) fatal0("ASSERT_GEOMETRY_BAD_FINAL_SECTOR_COUNT");
+    if (fpp->fcp.sector_count % 63U) fatal0("ASSERT_GEOMETRY_SECTOR_COUNT_MODULO_SECS");
+#  endif
+}
 
 static noreturn void usage(ub is_help, const char *argv0) {
   char *p = sbuf;  /* TODO(pts): Check for overflow below. */
@@ -463,19 +641,20 @@ int main(int argc, char **argv) {
   const char **arg, **arge, **argfn = NULL;
   const char *flag;
   ub is_help;
-  int log2_size = 0;  /* Unspecified. */
+  signed char log2_size = 0;  /* Unspecified. -1 means FAT12 preset. */
   const struct fat12_preset *prp;
   const char **csp;
   struct fat_params fp;
-  int min_log2_spc;
+  int min_log2_spc, max_log2_spc;
   uw old_sectors_per_fat;
+  ud fat_clusters_sec_ofs;
 
   (void)argc;
 #  ifdef __MMLIBC386__
   stdout_fd = STDERR_FILENO;  /* For msg_printf(...). */
 #  endif
   memset(&fp, '\0', sizeof(fp));
-  fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
+  fp.default_log2_sectors_per_cluster = fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
   fp.volume_id = 0x1234abcd;  /* !! Add command-line flag to make it configurable. */
   is_help = argv[1] && strcasecmp(argv[1], "--help") == 0;
   for (arge = (const char **)argv + 1; ; ++arge) {
@@ -501,7 +680,7 @@ int main(int argc, char **argv) {
         if (log2_size != 0) { error_multiple_size:
           bad_usage0("multiple image sizes specified");
         }
-        log2_size = ~(prp - fat12_presets);  /* !! Get rid of this. */
+        log2_size = -1;
         fp.fcp = prp->fcp;  /* This is a memcpy(). */
         fp.default_fat_count = 2;
         fp.default_reserved_sector_count = 1;
@@ -524,6 +703,7 @@ int main(int argc, char **argv) {
     }
     for (csp = sectors_per_cluster_presets_b_9; csp != ARRAY_END(sectors_per_cluster_presets_b_9); ++csp) {
       if (strcasecmp(flag, *csp) == 0) {
+        /* !! Allow idempotent specifications of log2_size and fp.fcp.log2_sectors_per_cluster. */
         if (fp.fcp.log2_sectors_per_cluster != (ub)-1) { error_multiple_spc:
           bad_usage0("multiple sectors-per-cluster specified");
         }
@@ -532,10 +712,10 @@ int main(int argc, char **argv) {
       }
     }
     for (csp = sectors_per_cluster_presets_s_9; csp != ARRAY_END(sectors_per_cluster_presets_s_9); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_s_9 + 9 - 9; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_s_9 + 9 - 9; goto next_flag; }
     }
     for (csp = sectors_per_cluster_presets_k_10; csp != ARRAY_END(sectors_per_cluster_presets_k_10); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_k_10 + 10 - 9; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_k_10 + 10 - 9; goto next_flag; }
     }
     if (strcasecmp(flag, "FAT12") == 0) {
       if (fp.fat_fstype && fp.fat_fstype != 12) { error_multiple_fat_fstype:
@@ -549,12 +729,12 @@ int main(int argc, char **argv) {
       if (fp.fat_fstype && fp.fat_fstype != 32) goto error_multiple_fat_fstype;
       fp.fat_fstype = 32;
     } else if (strcasecmp(flag, "1FAT") == 0 || strcasecmp(flag, "1F") == 0) {
-      if (fp.fat_fstype && fp.fat_fstype != 12) { error_multiple_fat_count:
+      if (fp.fat_count && fp.fat_count != 1) { error_multiple_fat_count:
         bad_usage0("multiple FAT FAT counts specified");
       }
       fp.fat_count = 1;
     } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
-      if (fp.fat_fstype && fp.fat_fstype != 16) goto error_multiple_fat_count;
+      if (fp.fat_count && fp.fat_count != 2) goto error_multiple_fat_count;
       fp.fat_count = 2;
     } else {
       msg_printf("fatal: unknown command-line flag: %s\n", flag);
@@ -566,8 +746,8 @@ int main(int argc, char **argv) {
   if (argfn[1]) bad_usage0("multiple output filenames specified");
   sfn = *argfn;
 
-  if (!fp.fat_fstype) {  /* Autodetect. FAT12 is already enabled above for floppies. */
-    fp.fat_fstype = log2_size <= 31 ? 16 : 32;  /* Use FAT16 for up to 2 GiB, use FAT32 for anything larger. FAT16 doesn't support more than 2 GiB. */
+  if (!fp.fat_fstype) {  /* Autodetect. */
+    fp.fat_fstype = log2_size < 0 ? 12 : log2_size <= 31 ? 16 : 32;  /* Use FAT16 for up to 2 GiB, use FAT32 for anything larger. FAT16 doesn't support more than 2 GiB. */
   }
   if (!fp.fat_count) {  /* Autodetect. */
     if ((fp.fat_count = fp.default_fat_count) == 0) {
@@ -576,38 +756,55 @@ int main(int argc, char **argv) {
   }
   if (!fp.reserved_sector_count) {  /* Autodetect. */
     if ((fp.reserved_sector_count = fp.default_reserved_sector_count) == 0) {
-      fp.reserved_sector_count = fp.fat_fstype == 32 ? 17 : 1;  /* 17 for compatibility with the Windows XP FAT32 boot sector code, which loads additional boot code from sector 8. */
+      /* !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32. */
+      fp.reserved_sector_count = fp.fat_fstype == 32 ? 17 : 1;  /* 17 for compatibility with the Windows XP FAT32 boot sector code (written during Windows XP installation), which loads additional boot code from sector 8. */
     }
   }
   if (!fp.fcp.rootdir_entry_count) {
     if ((fp.fcp.rootdir_entry_count = fp.default_rootdir_entry_count) == 0) {  /* Autodetect. */
-      fp.fcp.rootdir_entry_count = 256;
+      fp.fcp.rootdir_entry_count = 128;  /* !! Maybe 256? Look at alignment. */
     }
     fp.fcp.rootdir_entry_count = (fp.fcp.rootdir_entry_count + 0xf) & ~0xf;  /* Round up to a multiple of 16. */
   }
   if (fp.fat_fstype == 32) fp.fcp.rootdir_entry_count = 0;
   if (fp.fcp.log2_sectors_per_cluster == (ub)-1) fp.fcp.log2_sectors_per_cluster = fp.default_log2_sectors_per_cluster;  /* Can still be (ub)-1 (unspecified) for non-floppy. */
   if (log2_size < 0) {  /* Floppy FAT12. */
-    /* This is ensured above: if (fp.fat_fstype != 12) bad_usage0("only FAT12 is supported for floppy images"); */
+    if (fp.fat_fstype != 12) bad_usage0("only FAT12 is supported for floppy");  /* Because boot code is not implemented. */
     if (fp.fcp.rootdir_entry_count != fp.default_rootdir_entry_count ||
         fp.fcp.log2_sectors_per_cluster != fp.default_log2_sectors_per_cluster ||
         fp.reserved_sector_count != fp.default_reserved_sector_count ||
         fp.fat_count != fp.default_fat_count ||
-        0) fp.fcp.cluster_count = 0;  /* Recalculate from fp.sector_count below. */
+        0) { /* Recalculate (fp.fcp.cluster_count, fp.fcp.sectors_per_fat). */
+#    if DEBUG
+      if (!fp.fcp.sector_count) fatal0("ASSERT_SECTORS");
+#    endif
+      fp.fcp.sectors_per_fat = 0;
+      do {
+        old_sectors_per_fat = fp.fcp.sectors_per_fat;
+        fp.fcp.cluster_count = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count - ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) - (fp.fcp.rootdir_entry_count >> 4)) >> fp.fcp.log2_sectors_per_cluster;
+        if ((sd)fp.fcp.cluster_count <= 0) bad_usage0("FAT12 filesystem too small, no space for clusters");
+        fp.fcp.sectors_per_fat = ((((fp.fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* FAT12. */
+      } while (fp.fcp.sectors_per_fat != old_sectors_per_fat);  /* Repeat until a fixed point is found for (fp.fcp.cluster_count, fp.fcp.sectors_per_fat). */
+    }
+    fp.geometry_sector_count = fp.fcp.sector_count;
+#    ifdef DEBUG
+      fp.cylinder_count = fp.geometry_sector_count / ((ud)fp.fcp.head_count * fp.fcp.sectors_per_track);
+#    endif
   } else {
-    fp.hidden_sector_count = 63;  /* Partition 1 starts here. */
+    fp.hidden_sector_count = 63U;  /* Partition 1 starts here, after the MBR and the rest of cylinder 0, head 0. Must be a multiple of sectors_per_track for MS-DOS <=6.x */
+    fp.fcp.media_descriptor = 0xf8;  /* 0xf8 for HDD. 0xf8 is also used by some nonstandard floppy disk formats. */
     if (!log2_size) bad_usage0("image size not specified");
 #    ifdef DEBUG
       if (log2_size < 21) fatal0("ASSERT_IMAGE_TOO_SMALL");
       if (log2_size > 43) fatal0("ASSERT_IMAGE_TOO_LARGE");
 #    endif
     if (fp.fat_fstype == 12) {
-      bad_usage0("FAT12 is not supported for hard disk images");  /* Because boot code is not implemented. */
+      bad_usage0("FAT12 is not supported for hard disk");  /* Because boot code is not implemented. */
     } else if (fp.fat_fstype == 16) {
       /* No need to check `if (log2_size < 12 + 9) bad_usage0("FAT16 too small");', because we we have log_size >= 21 (2M) here, we don't support smaller values. */
-      if (log2_size > 16 + 15) bad_usage0("FAT16 too large");
+      if (log2_size > 16 + 15) bad_usage0("FAT16 too large, maximum is FAT16 2G");
     } else /* if (fp.fat_fstype == 32) */ {
-      if (log2_size < 16 + 9) bad_usage0("FAT32 too small");
+      if (log2_size < 16 + 9) bad_usage0("FAT32 too small, minimum is FAT32 32M");
       /* No need to check `if (log2_size > 28 + 15) bad_usage0("FAT32 too large");', because we we have log_size <= 41 (2T) <= 43 here, we don't support larger values. */
     }
     /* Cluster count limits:
@@ -624,40 +821,69 @@ int main(int argc, char **argv) {
         fp.fcp.log2_sectors_per_cluster = log2_size == 26 ? 1 : log2_size == 27 ? 2 : log2_size - 28U <= 40U - 28U ? 3 : min_log2_spc >= 0 ? min_log2_spc : 0;
       }
     } else {
-      min_log2_spc = log2_size - fp.fcp.log2_sectors_per_cluster - (fp.fat_fstype == 16 ? 16U + 9U : 28U + 9U);
-      if (min_log2_spc < 0) bad_usage0("sectors-per-cluster too large for this FAT size");
-      if (min_log2_spc > 6) bad_usage0("sectors-per-cluster too small for this FAT size");
+      min_log2_spc = log2_size - (fp.fat_fstype == 16 ? 16U + 9U : 28U + 9U);
+      max_log2_spc = log2_size - (fp.fat_fstype == 16 ? 12U + 9U : 16U + 9U);
+      if (max_log2_spc < (int)fp.fcp.log2_sectors_per_cluster) bad_usage0("sectors-per-cluster too large for this image size");
+      if (min_log2_spc > (int)fp.fcp.log2_sectors_per_cluster) bad_usage0("sectors-per-cluster too small for this image size");
     }
-    if (!fp.fcp.cluster_count) {
-      fp.fcp.cluster_count = ((ud)1 << (log2_size - (fp.fcp.log2_sectors_per_cluster + 9U))) - 2;  /* -2 is for the 2 special cluster entries at the beginning of the FAT table. */
-      fp.sectors_per_fat = fp.fat_fstype == 32 ? (ud)0 : /* fat16: */ (fp.fcp.cluster_count + (2U + 0xffU)) >> 8;
-      /* fp.fcp.cluster_count = (fp.fat_fstype == 16 ? auto_fat16_cluster_counts_12 - 12 : auto_fat32_cluster_counts_16 - 16)[log2_size - (fp.fcp.log2_sectors_per_cluster + 9U)]; */
-      if (fp.fat_fstype && fp.fcp.cluster_count == 0x10000 - 2) fp.fcp.cluster_count -= 0x10;  /* Maximum 0xffee clusters on a FAT16 filesystem, to avoid detection as FAT32. !! Is this needed? Where is it documented? */
+    fp.fcp.cluster_count = ((ud)1 << (log2_size - (fp.fcp.log2_sectors_per_cluster + 9U))) - 2;  /* -2 is for the 2 special cluster entries at the beginning of the FAT table. */
+    /* fp.fcp.cluster_count = (fp.fat_fstype == 16 ? auto_fat16_cluster_counts_12 - 12 : auto_fat32_cluster_counts_16 - 16)[log2_size - (fp.fcp.log2_sectors_per_cluster + 9U)]; */
+    /* FAT filesystem cluster limits based on:
+     *
+     * [MS-EFI-FAT32]: https://github.com/LeeKyuHyuk/fat16/raw/refs/heads/master/documentation/fatgen103.pdf
+     * [FAT32-Win2000]: https://web.archive.org/web/20150511155943/https://support.microsoft.com/en-us/kb/184006/en-us
+     * [FAT32-WinXP]: https://web.archive.org/web/20150513003749/https://support.microsoft.com/en-us/kb/314463
+     * [MSDOS-Win95]: https://web.archive.org/web/20150612114245/https://support.microsoft.com/en-us/kb/67321
+     * [WinNT4]: experimentation by the Mtools team with Windows NT 4.0: https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/mformat.c#L222
+     * [Mtools]: https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/mformat.c#L222 and https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/msdos.h#L215-L225
+     * [Linux3.13]: https://github.com/torvalds/linux/blob/d8ec26d7f8287f5788a494f56e8814210f0e64be/include/uapi/linux/msdos_fs.h#L65-L67
+     * [Linux6.13]: https://github.com/torvalds/linux/blob/ffd294d346d185b70e28b1a28abe367bbfe53c04/include/uapi/linux/msdos_fs.h#L65-L67
+     *
+     * The documented cluster limits:
+     *
+     * * FAT12: at most 0xff4 clusters [MS-EFI-FAT32] [Linux3.13] [Linux6.13] [Mtools], at most 0xff6 clusters [MSDOS-Win95] [WinNT4]
+     * * FAT16: at least 0xff5 clusters [MS-EFI-FAT32] [Linux3.13] [Linux6.13] [Mtools], at least 0xff7 clusters [MSDOS-Win95] [WinNT4], at most 0xfff4 clusters [MS-EFI-FAT32] [Linux3.13] [Linux6.13] [Mtools]
+     * * FAT32: at least 0xfff5 clusters [MS-EFI-FAT32] [Linux3.13] [Linux6.13] [Mtools], at most 0xffffff5 clusters [FAT32-Win2000] [FAT32-WinXP], at most 0xffffff6 clusters [Linux3.13] [Linux6.13]
+     *
+     * So our conservative limits become:
+     *
+     * * FAT12: at least 1 cluster, at most 0xff4 clusters
+     * * FAT16: at least 0xff7 clusters, at most 0xfff4 clusters
+     * * FAT32: at least 0xfff5 clusters, at most 0xffffff5 clusters; but we want to fit the entire partition in <2TiB, so we will allow less
+     */
+    if (fp.fat_fstype == 16) {
+      if (fp.fcp.cluster_count == 0xfffeU) fp.fcp.cluster_count -= 10U;  /* Maximum 0xfff4 clusters on a FAT16 filesystem. */
+    } else if (fp.fat_fstype == 32) {
+      if (log2_size == 41 && fp.fcp.log2_sectors_per_cluster >= 4) {
+        fp.fcp.cluster_count = /* Avoid overflows below, make sure that fp.geometry_sector_count fits to 32 bits unsigned. */
+            fp.fcp.log2_sectors_per_cluster == 4 ? 0xffdfc4f :
+            fp.fcp.log2_sectors_per_cluster == 5 ? 0x7ff7e0f :
+            /* fp.fcp.log2_sectors_per_cluster == 6 ? */ 0x3ffdf04;
+      } else if (fp.fcp.cluster_count == 0xffffffeU) {
+        fp.fcp.cluster_count -= 9U;  /* Maximum 0xffffff5 clusters on a FAT32 filesystem. */
+      }
     }
-    bad_usage0("!! FAT16--32 not supported");
+    /*if (fp.fat_fstype == 32 && log2_size == 41) fp.fcp.cluster_count -= 0x1fff5 + (0x7ebbc5>>6) - 0x1f73e;*/
+    fp.fcp.sectors_per_fat = fp.fat_fstype == 32 ? (fp.fcp.cluster_count + (2U + 0x7fU)) >> 7 : /* fat16: */ (fp.fcp.cluster_count + (2U + 0xffU)) >> 8;
+    fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) + (fp.fcp.rootdir_entry_count >> 4);
+    fat_clusters_sec_ofs += align_fat(&fp, fat_clusters_sec_ofs);
+    fp.fcp.sector_count = fat_clusters_sec_ofs + (fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster);
+#    if DEBUG
+      if (fp.fcp.cluster_count > (0xffffffffU >> fp.fcp.log2_sectors_per_cluster) ||
+          fp.fcp.sector_count <= fat_clusters_sec_ofs ||
+          (fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster) > fp.fcp.sector_count - fat_clusters_sec_ofs
+         ) fatal0("ASSERT_SECTOR_COUNT_OVERFLOW");
+#    endif
+    adjust_hdd_geometry(&fp, fat_clusters_sec_ofs);
   }
-  if (!fp.fcp.cluster_count) {  /* !! Also consider alignment. */  /* !! Test floppy presets. */
 #  if DEBUG
-    if (fp.fat_fstype != 12) fatal0("ASSERT_FAT12");
-    if (!fp.fcp.sector_count) fatal0("ASSERT_SECTORS");
-    if (fp.sectors_per_fat) fatal0("ASSERT_SECTORS_PER_FAT");
+    msg_printf("info: sector_count=%lu=0x%lx geometry_sector_count=%lu=0x%lx CHS=%lu:%u:%u\n", (unsigned long)fp.fcp.sector_count, (unsigned long)fp.fcp.sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.cylinder_count, (unsigned)fp.fcp.head_count, (unsigned)fp.fcp.sectors_per_track);
 #  endif
-    do {
-      old_sectors_per_fat = fp.sectors_per_fat;
-      fp.fcp.cluster_count = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count - ((ud)fp.sectors_per_fat << (fp.fat_count - 1)) - (fp.fcp.rootdir_entry_count >> 4)) >> fp.fcp.log2_sectors_per_cluster;
-      fp.sectors_per_fat = ((((fp.fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* FAT12. */
-    } while (fp.sectors_per_fat != old_sectors_per_fat);  /* Repeat until a fixed point is found for (fp.fcp.cluster_count, fp.sectors_per_fat). */
-    fatal0("!! custom FAT12 not supported");
-  }
   if ((sfd = open(sfn, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666)) < 0) {
     msg_printf("fatal: error opening output file: %s\n", sfn);
     exit(2);
   }
-  if (log2_size < 0) {  /* FAT12 floppy image. */
-    create_fat12(log2_size);
-  } else {
-    bad_usage0("FAT16 and FAT32 not supported yet");
-  }
+  create_fat(&fp);
   close(sfd);
   return 0;
 }
