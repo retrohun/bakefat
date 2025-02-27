@@ -79,13 +79,14 @@
 ;   * There is no way to align the root directory to cluster size. Maybe by increasing the number of clusters beyond the device.
 ;   * To align the clusters to cluster size, increase the number of root directory entries.
 ; * number of clusters:
+;   * This is incomplete, see the comments in bakefat.c instead.
 ;   * We take into Microsoft's EFI FAT32 specification (see below), Windows NT
 ;     4.0, mtools (https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/mformat.c#L222)
 ;     and Linux kernel 3.13 vfat.o.
 ;   * Microsoft's EFI FAT32 specification states that any FAT file system
 ;     with less than 4085 clusters is FAT12,
 ;     else any FAT file system with less than 65525 clusters is FAT16,
-;     and otherwise it is FAT32 (up to 268435444 == 0xffffff4 clusters).
+;     and otherwise it is FAT32 (up to 268435445 == 0xffffff5 clusters).
 ;   * FAT12: 1 .. 4078 (== 0xfee) clusters.
 ;   * FAT16: 4087 .. 65518 (== 0xffee) clusters.
 ;   * FAT32: 65525 .. 268435438 (== 0x0fffffee) clusters.
@@ -648,7 +649,7 @@ assert_at .header+0x20
 assert_at .header+0x24
 %if (%7)  ; FAT32.
 ; B1G-4K based on: rm -f fat32.img && mkfs.vfat -a -C -D 0 -f 1 -F 32 -i abcd1234 -r 128 -R 17 -s 8 -S 512 -h 63 --invariant fat32.img 1049604
-; -R >=16 for Windows NT installation, it modifies sector 8 when making the partition bootable.
+; -R >=16 for Windows XP installation, it modifies sector 8 when making the partition bootable.
 .sectors_per_fat_fat32: dd (%5)
 assert_at .header+0x28
 .mirroring_flags: dw 0  ; As created by mkfs.vfat.
