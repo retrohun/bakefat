@@ -592,7 +592,7 @@ static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs)
 #  endif
 }
 
-static ud get_aligned_fat32_sector_count(const struct fat_params *fpp, ud fat_cluster_count) {
+static ub is_aligned_fat32_sector_count_at_most(const struct fat_params *fpp, ud fat_cluster_count) {
   struct fat_params fp = *fpp;  /* This is a memcpy(). */
   ud fat_clusters_sec_ofs, fat_sector_in_cluster_count;
   fp.fcp.cluster_count = fat_cluster_count;
@@ -600,7 +600,7 @@ static ud get_aligned_fat32_sector_count(const struct fat_params *fpp, ud fat_cl
   fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) /* + (fp.fcp.rootdir_entry_count >> 4U) */;
   fat_clusters_sec_ofs += align_fat(&fp, fat_clusters_sec_ofs);
   fat_sector_in_cluster_count = fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster;
-  return fat_clusters_sec_ofs >= 0xffffffffU - fat_sector_in_cluster_count ? 0xffffffffU : fat_clusters_sec_ofs + fat_sector_in_cluster_count;
+  return fat_sector_in_cluster_count <= fp.fcp.sector_count && fat_clusters_sec_ofs <= fp.fcp.sector_count - fat_sector_in_cluster_count;
 }
 
 static noreturn void usage(ub is_help, const char *argv0) {
@@ -872,7 +872,7 @@ int main(int argc, char **argv) {
         lo = hi - ((hi + (2U + 0x7FU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
         while (lo < hi) {  /* Binary search. About 21 iterations. */
           mid = lo + ((hi - lo) >> 1U);
-          if (get_aligned_fat32_sector_count(&fp, mid + 1U) <= fp.fcp.sector_count) {
+          if (is_aligned_fat32_sector_count_at_most(&fp, mid + 1U)) {
             lo = mid + 1U;
           } else {
             hi = mid;
