@@ -525,7 +525,7 @@ static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs)
       (fpp->fcp.sector_count <= 4096U * 64U * 63U) ? 64U :
       (fpp->fcp.sector_count <= 8192U * 128U * 63U) ? 128U : 255U;
   hs = fpp->fcp.head_count * 63U;
-  cyls = (fpp->fcp.sector_count + hs - 1U) / hs;
+  cyls = fpp->fcp.sector_count == 0U ? (ud)0 : (fpp->fcp.sector_count - 1U) / hs + 1U;  /* This is round_up_div(fpp->fcp.sector_count, hs), but avoids overflow. */
   fpp->cylinder_count = cyls =
       (heads == 32U && cyls < 543U) ? 543U :
       (heads == 64U && cyls < 527U) ? 527U :
@@ -592,6 +592,17 @@ static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs)
 #  endif
 }
 
+static ud get_aligned_fat32_sector_count(const struct fat_params *fpp, ud fat_cluster_count) {
+  struct fat_params fp = *fpp;  /* This is a memcpy(). */
+  ud fat_clusters_sec_ofs, fat_sector_in_cluster_count;
+  fp.fcp.cluster_count = fat_cluster_count;
+  fp.fcp.sectors_per_fat = (fp.fcp.cluster_count + (2U + 0x7fU)) >> 7U;
+  fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) /* + (fp.fcp.rootdir_entry_count >> 4U) */;
+  fat_clusters_sec_ofs += align_fat(&fp, fat_clusters_sec_ofs);
+  fat_sector_in_cluster_count = fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster;
+  return fat_clusters_sec_ofs >= 0xffffffffU - fat_sector_in_cluster_count ? 0xffffffffU : fat_clusters_sec_ofs + fat_sector_in_cluster_count;
+}
+
 static noreturn void usage(ub is_help, const char *argv0) {
   char *p = sbuf;  /* TODO(pts): Check for overflow below. */
   const char **csp;
@@ -648,6 +659,7 @@ int main(int argc, char **argv) {
   int min_log2_spc, max_log2_spc;
   uw old_sectors_per_fat;
   ud fat_clusters_sec_ofs;
+  ud hi, lo, mid;
 
   (void)argc;
 #  ifdef __MMLIBC386__
@@ -854,18 +866,26 @@ int main(int argc, char **argv) {
     if (fp.fat_fstype == 16) {
       if (fp.fcp.cluster_count == 0xfffeU) fp.fcp.cluster_count -= 10U;  /* Maximum 0xfff4 clusters on a FAT16 filesystem. */
     } else if (fp.fat_fstype == 32) {
-      if (log2_size == 41 && fp.fcp.log2_sectors_per_cluster >= 4) {
-        fp.fcp.cluster_count = /* Avoid overflows below, make sure that fp.geometry_sector_count fits to 32 bits unsigned. */
-            fp.fcp.log2_sectors_per_cluster == 4 ? 0xffdfc4f :
-            fp.fcp.log2_sectors_per_cluster == 5 ? 0x7ff7e0f :
-            /* fp.fcp.log2_sectors_per_cluster == 6 ? */ 0x3ffdf04;
+      if (log2_size == 41) {  /* Avoid overflows below, make sure that fp.geometry_sector_count fits to ud (32-bit unsigned). */
+        fp.fcp.sector_count = 0xffffffffU / (255U * 63U) * (255U * 63U);  /* An upper limit. */
+        hi = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count) >> fp.fcp.log2_sectors_per_cluster;  /* An upper limit on fp.fcp.cluster_count. */
+        lo = hi - ((hi + (2U + 0x7FU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
+        while (lo < hi) {  /* Binary search. About 21 iterations. */
+          mid = lo + ((hi - lo) >> 1U);
+          if (get_aligned_fat32_sector_count(&fp, mid + 1U) <= fp.fcp.sector_count) {
+            lo = mid + 1U;
+          } else {
+            hi = mid;
+          }
+        }
+        fp.fcp.cluster_count = lo;
       } else if (fp.fcp.cluster_count == 0xffffffeU) {
         fp.fcp.cluster_count -= 9U;  /* Maximum 0xffffff5 clusters on a FAT32 filesystem. */
       }
     }
     /*if (fp.fat_fstype == 32 && log2_size == 41) fp.fcp.cluster_count -= 0x1fff5 + (0x7ebbc5>>6) - 0x1f73e;*/
-    fp.fcp.sectors_per_fat = fp.fat_fstype == 32 ? (fp.fcp.cluster_count + (2U + 0x7fU)) >> 7 : /* fat16: */ (fp.fcp.cluster_count + (2U + 0xffU)) >> 8;
-    fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) + (fp.fcp.rootdir_entry_count >> 4);
+    fp.fcp.sectors_per_fat = fp.fat_fstype == 32 ? (fp.fcp.cluster_count + (2U + 0x7fU)) >> 7U : /* fat16: */ (fp.fcp.cluster_count + (2U + 0xffU)) >> 8U;
+    fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) + (fp.fcp.rootdir_entry_count >> 4U);
     fat_clusters_sec_ofs += align_fat(&fp, fat_clusters_sec_ofs);
     fp.fcp.sector_count = fat_clusters_sec_ofs + (fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster);
 #    if DEBUG
