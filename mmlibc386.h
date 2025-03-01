@@ -217,6 +217,8 @@ int __watcall ftruncate64_here(int fd);  /* Not POSIX. Equivalent to ftruncate64
 #endif
 int __watcall ftruncate64_grow_here(int fd);  /* Not POSIX. Equivalent to `if (lseek64(fd, 0, SEEK_CUR) > filelength64(fd)) ftruncate64(fd, lseek64(fd, 0, SEEK_CUR))', but with better error handling. */
 
+int __watcall fsetsparse(int fd);  /* Not POSIX. Returns 0 on sucess, -1 on failure. Sets file to sparse. On Unix (e.g. Linux and FreeBSD), it always succeeds. Makes a difference on Windows >=2000 and NTFS, fails on FAT filesystems. */
+
 time_t __watcall time(time_t *tloc);
 
 /* Returns an unaligned pointer or NULL on error. There is no API to free

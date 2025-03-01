@@ -487,6 +487,13 @@ section _TEXT
     %define __NEED_handle_from_fd
   %endif
 %endif
+%ifdef __NEED_fsetsparse_
+  %ifdef OS_WIN32
+    %define __NEED_handle_from_fd
+    %define __NEED__GetModuleHandleA@4
+    %define __NEED__GetProcAddress@8
+  %endif
+%endif
 %ifdef __NEED_handle_from_fd
   %ifdef OS_WIN32
     %define __NEED_fd_handles
@@ -971,6 +978,14 @@ section _TEXT
 %ifdef __NEED__CreateFileA@28
   extern _CreateFileA@28
   import _CreateFileA@28 kernel32.dll CreateFileA
+%endif
+%ifdef __NEED__GetModuleHandleA@4
+  extern _GetModuleHandleA@4
+  import _GetModuleHandleA@4 kernel32.dll GetModuleHandleA
+%endif
+%ifdef __NEED__GetProcAddress@8
+  extern _GetProcAddress@8
+  import _GetProcAddress@8 kernel32.dll GetProcAddress
 %endif
 
 ; --- OpenWatcom 64-bit integer arithmetics (`long long' and `unsigned long long') support.
@@ -3651,6 +3666,86 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
         .enosys_linux: equ .bad_linux
       %endif
     %endif
+  %endif
+%endif
+
+%ifdef __NEED_fsetsparse_
+  global fsetsparse_
+  fsetsparse_:  ; int __watcall fsetsparse(int fd);
+  %ifdef OS_WIN32
+    ; int __watcall handle_from_fd(int fd);
+    ; int __stdcall GetModuleHandleA(const char *lpModuleName);
+    ; void * __stdcall GetProcAddress(int hModule, const char *lpProcName);
+    ; #define FSCTL_SET_SPARSE 0x900c4  /* #define _WIN32_WINNT 0x0500 ++ #include <windows.h> --> FSCTL_SET_PARSE. Windows 2000 and later (e.g. Windows NT). */
+    ; /* Based on https://web.archive.org/web/20220207223136/http://www.flexhex.com/docs/articles/sparse-files.phtml
+    ;  *
+    ;  * The call below succeeds on Windows 2000, Windows XP and later
+    ;  * versions of Windows on NTFS filesystems (but fail on FAT
+    ;  * filesystems).
+    ;  *
+    ;  * Upon success, the image file will be sparse on NTFS filesystems, so
+    ;  * 64 KiB blocks skipped over (with lseek64(2) and ftruncate64(2)) won't
+    ;  * take actual disk space. Thus a `720K` floppy image will use 64 KiB,
+    ;  * and a `FAT12 256M` HDD will use 3*64 KiB (first 64 KiB: MBR, boot
+    ;  * sector and first sector of first FAT; second 64 KiB: first sector of
+    ;  * second FAT; third 64 KiB: root directory). This has been tested on
+    ;  * Windows XP.
+    ;  *
+    ;  * After creating a sparse file on Windows >=2000, Windows NT won't be
+    ;  * able to access the filesystem (not even directories or other files).
+    ;  */
+    ; void __watcall fsetsparse(int fd) {
+    ;   /* We look up the DLL function by name because not all Win32
+    ;    * kernel32.dll files have it, for example WDOSX doesn't have it.
+    ;    */
+    ;   int __stdcall (*DeviceIoControl)(int, unsigned, void *, unsigned, void *, unsigned, unsigned *, void *) =
+    ;       (int __stdcall (*)(int, unsigned, void *, unsigned, void *, unsigned, unsigned *, void *))
+    ;       GetProcAddress(GetModuleHandleA("kernel32.dll"), "DeviceIoControl");
+    ;   unsigned dwTemp;
+    ;   return DeviceIoControl && DeviceIoControl(handle_from_fd(fd), FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &dwTemp, NULL) ? 0 : -1;
+    ;   }
+    ; }
+		push ebx  ; Save.
+		push ecx  ; Save.
+		push edx  ; Save.
+		push ecx  ; Make room for dwTemp.
+		xchg ebx, eax  ; EBX := EAX (fd); EAX := junk.
+		push dword str_DeviceIoControl
+		push dword str_kernel32_dll
+		call _GetModuleHandleA@4
+		push eax
+		call _GetProcAddress@8
+		test eax, eax
+		jz short .done  ; Return -1, indicating error.
+		xchg edx, eax  ; EDX := address of DeviceIoControl (function pointer); EAX := junk.
+		mov ecx, esp  ; ECX := address of dwTemp.
+		xor eax, eax
+		push eax
+		push ecx  ; Address of dwTemp.
+		push eax
+		push eax
+		push eax
+		push eax
+		push dword 0x900c4  ; FSCTL_SET_SPARSE.
+		xchg eax, ebx  ; EAX := EBX (fD); EBX := junk.
+		call handle_from_fd
+		push eax
+		call edx  ; DeviceIoControl.
+    .done:	sub eax, byte 1
+		jc short .ret  ; Return -1, indicating error. The reason may be non-NTFS filesystem or Windows NT older than Windows 2000.
+		xor eax, eax  ; Return 0, indicating success.
+    .ret:	pop ecx  ; Clean up dwTemp from stack.
+		pop edx  ; Restore.
+		pop ecx  ; Restore.
+		pop ebx  ; Restore.
+		ret
+    section CONST
+    str_DeviceIoControl: db 'DeviceIoControl', 0
+    str_kernel32_dll: db 'kernel32.dll', 0  ; TODO(pts): Remove string duplication with .idata.
+    section _TEXT
+  %else  ; OS_LINUX and OS_FREEBSD create sparse files by default, if the filesystem allows it.
+		xor eax, eax  ; Success. !! TODO(pts): In addition to this, optimize away the call in the .h file.
+		ret
   %endif
 %endif
 
