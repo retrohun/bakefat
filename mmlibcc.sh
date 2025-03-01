@@ -64,7 +64,9 @@ if test "$exit_code" != 0; then
       if(/^Error\! E2028: ([^ \t]+) is an undefined reference$/){printf"%c%s",c,$3;c=","}
       else if(/^file /&&/: undefined symbol /){}  # A subset of above.
       else{print>>"/dev/stderr";printf",?,"}
-      }' <"$prog".wlinkerr)"
+      }
+      END{if(c&&c%16==0){printf",,"}}  # Work around segfault-for-16-argument-macro bug in NASM 0.98.39.
+      ' <"$prog".wlinkerr)"
   if test "$?" != 0; then
     echo "fatal: wlink error parsing failed" >&2
   fi
