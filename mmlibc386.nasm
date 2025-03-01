@@ -2937,7 +2937,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     .done:	pop edx  ; Restore.
 		pop ecx  ; Restore.
 		ret
-    section CONST
+    section CONST2
     __M_open_flag_bytes: db GENERIC_READ>>24, GENERIC_WRITE>>24, (GENERIC_READ|GENERIC_WRITE)>>24, 0  ; 4 bytes aligned to 4. The last 0 doesn't matter.
     section _TEXT
   %else
