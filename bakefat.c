@@ -1,5 +1,5 @@
 /*
- * bakefat.c: bootable external FAT hard disk image creator for DOS and Windows 3.1--95--98--ME
+ * bakefat.c: bootable external FAT disk image creator for DOS and Windows 3.1--95--98--ME
  * by pts@fazekas.hu at Thu Feb  6 14:32:22 CET 2025
  *
  * Compile with OpenWatcom C compiler, minilibc686 for Linux i386: minicc -march=i386 -Werror -Wno-n201 -o bakefat bakefat.c
@@ -11,6 +11,7 @@
  * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
  * !! Exclude FAT header and partition table from boot_bin, making it shorter.
  * !! Move relevant comments from fat16m.nasm to here.
+ * !! Add implementation using <windows.h>, which compiles with MSVC, Borland C compiler and Digital Mars C compiler in addition to OpenWatcom C compiler.
  */
 
 #ifndef _FILE_OFFSET_BITS
@@ -78,7 +79,6 @@
 #endif
 
 #if defined(__WATCOMC__) && defined(__NT__) && defined(_WCDATA)  /* OpenWatcom C compiler, Win32 target, OpenWatcom libc. */
-  /* !! Create sparse file on Win32: https://web.archive.org/web/20220207223136/http://www.flexhex.com/docs/articles/sparse-files.phtml */
   /* OpenWatcom libc SetFilePointer: https://github.com/open-watcom/open-watcom-v2/blob/817428310bd22abeaf8a7018ce4c1c2578975543/bld/clib/handleio/c/__lseek.c#L97-L109 */
   /* Overrides lib386/nt/clib3r.lib / mbcupper.o
    * Source: https://github.com/open-watcom/open-watcom-v2/blob/master/bld/clib/mbyte/c/mbcupper.c
@@ -96,7 +96,7 @@
   }
 #  define IS_WINNT() ((short)_osbuild >= 0)  /* https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/lib_misc/h/osver.h#L43 */
 #  define IS_WINNT_WIN32API() ((int)GetVersion() >= 0)  /* https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/clib/startup/c/mainwnt.c#L138-L142 and https://github.com/open-watcom/open-watcom-v2/blob/b59d9d9ea5b9266e66efa305f970fe0a51892bb7/bld/lib_misc/h/osver.h#L43 */
-  extern int __stdcall kernel32_SetEndOfFile(int handle);
+  int __stdcall kernel32_SetEndOfFile(int handle);
 #  pragma aux kernel32_SetEndOfFile "_SetEndOfFile@4"
   static const char nul_buf[0x1000];
   /* It assumes that the current position is new_ofs, and upon success, it
@@ -153,7 +153,7 @@
    * Also we have to implement this because OpenWatcom libc doesn't provide
    * a 64-bit chsize(...) or ftruncate(...).
    */
-  int bakefat_ftruncate64(int fd, int64_t length) {
+  static int bakefat_ftruncate64(int fd, int64_t length) {
     int64_t old_ofs, size;
     if ((old_ofs = _lseeki64(fd, 0, SEEK_CUR)) < 0 ||
         (size = _lseeki64(fd, 0, SEEK_END)) < 0) return -1;
@@ -165,10 +165,69 @@
     if (old_ofs != length && _lseeki64(fd, old_ofs, SEEK_SET) != old_ofs) return -1;
     return 0;
   }
+  int __stdcall kernel32_GetModuleHandleA(const char *lpModuleName);
+#  pragma aux kernel32_GetModuleHandleA "_GetModuleHandleA@4"
+  void * __stdcall kernel32_GetProcAddress(int hModule, const char *lpProcName);
+#  pragma aux kernel32_GetProcAddress "_GetProcAddress@8"
+#  define kernel32_FSCTL_SET_SPARSE 0x900c4  /* #define _WIN32_WINNT 0x0500 ++ #include <windows.h> --> FSCTL_SET_PARSE. Windows 2000 and later (e.g. Windows NT). */
+  /* Converts file to sparse.
+   *
+   * Based on https://web.archive.org/web/20220207223136/http://www.flexhex.com/docs/articles/sparse-files.phtml
+   *
+   * The call below succeeds on Windows 2000, Windows XP and later
+   * versions of Windows on NTFS filesystems (but fail on FAT
+   * filesystems).
+   *
+   * Upon success, the image file will be sparse on NTFS filesystems, so
+   * 64 KiB blocks skipped over (with lseek64(2) and ftruncate64(2)) won't
+   * take actual disk space. Thus a `720K` floppy image will use 64 KiB,
+   * and a `FAT12 256M` HDD will use 3*64 KiB (first 64 KiB: MBR, boot
+   * sector and first sector of first FAT; second 64 KiB: first sector of
+   * second FAT; third 64 KiB: root directory). This has been tested on
+   * Windows XP.
+   *
+   * After creating a sparse file on Windows >=2000, Windows NT won't be
+   * able to access the filesystem (not even directories or other files).
+   */
+  static void bakefat_set_sparse(int fd) {
+    /* We look up the DLL function by name because not all Win32
+     * kernel32.dll files have it, for example WDOSX doesn't have it.
+     */
+    int __stdcall (*DeviceIoControl)(int, unsigned, void *, unsigned, void *, unsigned, unsigned *, void *) =
+        (int __stdcall (*)(int, unsigned, void *, unsigned, void *, unsigned, unsigned *, void *))
+        kernel32_GetProcAddress(kernel32_GetModuleHandleA("kernel32.dll"), "DeviceIoControl");
+    unsigned dwTemp;
+#    ifdef DEBUG
+    int result;
+    if (!DeviceIoControl) {
+      msg_printf("info: sparse: no DeviceIoControl API function\n", DeviceIoControl != NULL);
+    } else if (DeviceIoControl(_get_osfhandle(fd), kernel32_FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &dwTemp, NULL)) {
+      msg_printf("info: sparse: set image file to sparse\n");
+    } else {
+      msg_printf("info: sparse: failed to set image file to sparse (needs Windows >=2000 and NTFS)\n");
+    }
+#    else
+    if (DeviceIoControl) {
+      DeviceIoControl(_get_osfhandle(fd), kernel32_FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &dwTemp, NULL);
+    }
+#    endif
+  }
 #else
   /* FreeBSD and musl have 64-bit off_t, lseek(2) and ftruncate(2) by default. Linux libcs (uClibc, EGLIBC, minilibc686) have it with -D_FILE_OFFSET_BITS=64. */
 #  define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
 #  define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
+#  ifdef __MMLIBC386__
+#    ifdef DEBUG
+       static void bakefat_set_sparse(int fd) {
+         msg_printf("info: sparse: %sset image file to sparse\n",
+                    fsetsparse(fd) != 0 ? "failed to " : "");
+       }
+#    else
+#      define bakefat_set_sparse(fd) fsetsparse(fd)
+#    endif
+#  else
+#    define bakefat_set_sparse(fd) do {} while (0)  /* Fallback: no-op. */
+#  endif
 #endif
 
 static const char boot_bin[] =
@@ -903,6 +962,7 @@ int main(int argc, char **argv) {
     msg_printf("fatal: error opening output file: %s\n", sfn);
     exit(2);
   }
+  bakefat_set_sparse(sfd);
   create_fat(&fp);
   close(sfd);
   return 0;
