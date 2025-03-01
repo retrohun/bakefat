@@ -613,6 +613,8 @@ static void create_fat(const struct fat_params *fpp) {
      *
      * File format docs: https://github.com/libyal/libvhdi/blob/main/documentation/Virtual%20Hard%20Disk%20(VHD)%20image%20format.asciidoc
      *
+     * Docs about QEMU disk image file format support: https://qemu-project.gitlab.io/qemu/system/images.html
+     *
      * VirtualBox 5.2.42 and QEMU 2.11.1 don't have the 127 GiB limit on
      * their virtual IDE controller: using EBIOS LBA (int 13h, AH == 42h),
      * all VHD sectors up to 2040 GiB can be accessed. The maximum sector
