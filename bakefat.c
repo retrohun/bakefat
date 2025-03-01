@@ -927,6 +927,7 @@ int main(int argc, char **argv) {
     } else if (fp.fat_fstype == 32) {
       if (log2_size == 41) {  /* Avoid overflows below, make sure that fp.geometry_sector_count fits to ud (32-bit unsigned). */
         fp.fcp.sector_count = 0xffffffffU / (255U * 63U) * (255U * 63U);  /* An upper limit. */
+        /* !! TODO(pts): Make hi lower by doing this without ud overflow: (...) * 512U / ((1U << fp.fcp.log2_sectors_per_cluster) + (2U << fp.fat_count)). */
         hi = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count) >> fp.fcp.log2_sectors_per_cluster;  /* An upper limit on fp.fcp.cluster_count. */
         lo = hi - ((hi + (2U + 0x7FU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
         while (lo < hi) {  /* Binary search. About 21 iterations. */
