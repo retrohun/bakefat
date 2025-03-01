@@ -176,8 +176,8 @@ bits 32
 cpu 386  ; Always true, we don't use any 486+ instructions (e.g. 486, 586, 686 and later).
 
 section _TEXT  USE32 class=CODE align=1
-section CONST  USE32 class=DATA align=4  ; OpenWatcom generates align=4.
-section CONST2 USE32 class=DATA align=4
+section CONST  USE32 class=DATA align=4  ; OpenWatcom generates align=4. String literals. (The OpenWatcom C compiler also adds some floating-point constants here as well: https://retrocomputing.stackexchange.com/q/27089 )
+section CONST2 USE32 class=DATA align=4  ; Other, non-string-literal .rodata.
 section _DATA  USE32 class=DATA align=4
 section _BSS   USE32 class=BSS  align=4 NOBITS  ; NOBITS is ignored by NASM, but class=BSS works.
 group DGROUP CONST CONST2 _DATA _BSS
@@ -1592,7 +1592,7 @@ section _TEXT
 
 %ifdef __NEED_handle_from_fd
   %ifdef OS_WIN32
-    handle_from_fd:  ; Inputs: EAX: fd; Outputs: EAX: handle or NULL if not found.
+    handle_from_fd:  ; Inputs: EAX: fd; Outputs: EAX: handle or NULL if not found. Equivalent to OpenWatcom int __watcall _get_osfhandle(int fd.).
 		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
 		jnc short .bad
 		mov eax, [fd_handles+eax*4]
@@ -2149,7 +2149,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
     read_write_helper:  ; Inputs: EAX: arg1; EDX: arg2; EBX: arg3; dword [ESP]: function pointer to _ReadFile@20 or _WriteFile@20. Outputs: result in EAX.
 		push ecx  ; Save.
 		push edx  ; Save.
-		push eax  ; Leave room for numberOfBytesWritten.
+		push eax  ; Make room for numberOfBytesWritten.
 		mov ecx, esp
 		push byte NULL  ; lpOverlapped.
 		push ecx  ; lpNumberOfBytesWritten.
@@ -2801,7 +2801,6 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		pop esi  ; Restore.
 		pop ecx  ; Restore.
 		ret
-    section _CONST2
     section _BSS
     nul_buf: resb 0x1000  ; Must be a power of 2 because of the alignment write.
     .size: equ $-nul_buf
