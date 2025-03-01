@@ -296,6 +296,17 @@ static inline void db(ub x) { *s++ = x; }
   static void dd(ud x) { *s++ = x & 0xff; *s++ = (x >> 8) & 0xff; *s++ = (x >> 16) & 0xff; *s++ = x >> 24; }
 #endif
 
+/* Serializing integers in big endian. */
+static void dwb(uw x) { *s++ = x >> 8; *s++ = x & 0xff; }
+/* !! Is this shorter: static void ddb(ud x) { dwb(x >> 16); dwb(x); } */
+static void ddb(ud x) { *s++ = x >> 24; *s++ = (x >> 16) & 0xff; *s++ = (x >> 8) & 0xff; *s++ = x & 0xff; }
+/* Emits (uint64_t)x << 9 in big endian, in 8 bytes. Avoids overflow. */
+static void dsb(ud x) {
+  *s++ = 0; *s++ = 0; *s++ = x >> 31;
+  x <<= 1;
+  *s++ = x >> 24; *s++ = (x >> 16) & 0xff; *s++ = (x >> 8) & 0xff; *s++ = x & 0xff; *s++ = 0;
+}
+
 static void write_sector(ud sofs) {
   const uint64_t ofs = (uint64_t)sofs << 9;
   if ((uint64_t)bakefat_lseek64(sfd, ofs, SEEK_SET) != ofs) {
@@ -341,6 +352,7 @@ struct fat_params {
   ub default_fat_count;
   ub fat_count;  /* 0 (unspecified), 1 or 2. */
   ub fat_fstype;  /* 0 (unspecified), 12, 16 or 32. */
+  ub vhd_mode;  /* 0 (unspecified), VHD_NOVHD == 1 (no VHD footer), VHD_NVHD == 2 (add VHD footer). */
 };
 
 struct fat12_preset {
@@ -421,16 +433,31 @@ enum pstatus_t {  /* Partition status. */
   PSTATUS_ACTIVE = 0x80
 };
 
+enum vhd_mode_t {  /* VHD mode. */
+  VHD_UNKNOWN = 0,
+  VHD_NOVHD = 1,  /* No VHD footer, create raw disk image. */
+  VHD_FIXED = 2,  /* Fixed-size VHD. Same value as in the footer and in qemu-2.11.1/block/vpc.c. */
+  VHD_DYNAMIC = 3  /* Dynamic (sparse) VHD. Currently not supported. Same value as in the footer and in qemu-2.11.1/block/vpc.c. */
+};
+
+/* 2040 GiB max VHD image size. This is enforced by QEMU 2.11.1
+ * (`qemu-system-i386 -drive file=hd.img,format=vpc`: it fails with error
+ * *File too large*.
+ *
+ * Maximum documented in: https://kb.msp360.com/standalone-backup/restore/vhd-disk-size-exceeded
+ */
+#define VHD_MAX_SECTORS 0xff000000U
+
 static void create_fat(const struct fat_params *fpp) {
-  /* !!! Add VHD footer for non-FAT12. */
   const ud fat_sector_size = 0x200;
   const ud fat_rootdir_sector_count = (ud)fpp->fcp.rootdir_entry_count >> 4;
   const ud fat_fat_sec_ofs = fpp->hidden_sector_count + fpp->reserved_sector_count;
   const ud fat_rootdir_sec_ofs = fat_fat_sec_ofs + ((ud)fpp->fcp.sectors_per_fat << (fpp->fat_count - 1U));
   const ud fat_clusters_sec_ofs = fat_rootdir_sec_ofs + fat_rootdir_sector_count;
   const uw first_boot_sector_copy_sec_ofs = (fpp->fat_fstype != 32 || fpp->reserved_sector_count <= 2U) ? 0U : fpp->reserved_sector_count < 6U ? 2U : 6U;  /* 6 was created by Linux mkfs.vfat(1), also for Windows XP. */
-#ifdef DEBUG
-  /* We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
+  ud checksum, vhd_sector_count = 0;
+#  ifdef DEBUG
+    /* We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk. */
     const ud min_sectors_per_fat =
         fpp->fat_fstype == 32 ? (fpp->fcp.cluster_count + (2U + 0x7fU)) >> 7 :
         fpp->fat_fstype == 16 ? (fpp->fcp.cluster_count + (2U + 0xffU)) >> 8 :
@@ -456,11 +483,18 @@ static void create_fat(const struct fat_params *fpp) {
     if (fpp->fat_fstype == 12 && fpp->fcp.sector_count > max_sector_count) fatal0("TOO_MANY_SECTORS");  /* Compared to fat12_preset. */
     if (fpp->hidden_sector_count > 0xffffU - fpp->reserved_sector_count) fatal0("TOO_MANY_HIDDEN_SECTORS");  /* It has to fit to a 16-bit word in the FAT header in the MBR. */
     if (fpp->fcp.sectors_per_track == 0 || fpp->hidden_sector_count % fpp->fcp.sectors_per_track) fatal0("BAD_HIDDEN_SECTOR_COUNT_MODULO");  /* MS-DOS <=6.x requires that hidden_sector_count is a multiple of sectors_per_track. */
-#else
+#  else
     (void)fatal0;  /* !! Remove definition if not used for DEBUG. */
-#endif
-
-  set_file_size_scount(fpp->geometry_sector_count);
+#  endif
+  if (fpp->vhd_mode == VHD_FIXED) {
+    vhd_sector_count = (fpp->geometry_sector_count + 0x7ffU) & ~0x7ffU;  /* Round up to the nearest MiB, as required by Microsoft Azure. */
+#    ifdef DEBUG
+      msg_printf("info: vhd_sector_count=%lu=0x%lx\n", (unsigned long)vhd_sector_count, (unsigned long)vhd_sector_count);
+#    endif
+    set_file_size_scount(vhd_sector_count + 1U);  /* +1U for the VHD footer sector. */
+  } else {
+    set_file_size_scount(fpp->geometry_sector_count);
+  }
 
   /* Write boot sector containing the FAT header (superblock). */
   memcpy(sbuf, boot_bin + (fpp->fat_fstype == 12 ? BOOT_OFS_FAT12 : fpp->fat_fstype == 16 ? BOOT_OFS_FAT16 : BOOT_OFS_FAT32), 0x200);
@@ -568,6 +602,100 @@ static void create_fat(const struct fat_params *fpp) {
   }
   write_sector(fat_fat_sec_ofs);
   if (fpp->fat_count > 1) write_sector(fat_fat_sec_ofs + fpp->fcp.sectors_per_fat);
+
+  /* Write the VHD footer. */
+  if (fpp->vhd_mode == VHD_FIXED) {
+    /* VHD (.vhd) is the virtual hard disk (virtual HDD) file format
+     * introduced by Connectix Virtual PC (now Microsoft Vitual PC). It has
+     * many subformats, We use the fixed-size subformat. (Using the dynamic
+     * subformat instead would make it possible to create sparse disk images
+     * on FAT filesystems, with the default block size of 2 MiB.)
+     *
+     * File format docs: https://github.com/libyal/libvhdi/blob/main/documentation/Virtual%20Hard%20Disk%20(VHD)%20image%20format.asciidoc
+     *
+     * VirtualBox 5.2.42 and QEMU 2.11.1 don't have the 127 GiB limit on
+     * their virtual IDE controller: using EBIOS LBA (int 13h, AH == 42h),
+     * all VHD sectors up to 2040 GiB can be accessed. The maximum sector
+     * count with CHS access (int 13h, AH == 2h) is 1024 * 255 * 63 (==
+     * 8032.5 MiB), sectors beyond that can't be accessed. QEMU 2.11.1 has a
+     * bug in its BIOS disk geometry reporting (int 13h, AH == 8): it
+     * reports 1 less than the actual number of cylinders -- but it can
+     * still access the last cylinder.
+     *
+     * https://kb.msp360.com/standalone-backup/restore/vhd-disk-size-exceeded
+     * says about MSP360 (Formerly CloudBerry) Backup for Windows: The
+     * maximum size for a virtual hard disk is 2,040 gigabytes (GB).
+     * However, any virtual hard disk attached to the IDE controller cannot
+     * exceed 127 gigabytes (GB). [...] VHDX can handle up to 64 TiB.
+     *
+     * https://serverfault.com/a/770425 says: When QEMU creates a VHD image,
+     * it goes by the original spec, calculating the current_size based on
+     * the nearest CHS geometry (with an exception for disks > 127GB).
+     * Apparently, Azure will only allow images that are sized to the
+     * nearest MB, and the current_size as calculated from CHS cannot
+     * guarantee that. Allow QEMU to create images similar to how Hyper-V
+     * creates images, by setting current_size to the specified virtual disk
+     * size. This introduces an option, force_size, to be passed to the vpc
+     * format during image creation.
+     *
+     * From the QEMU 2.11.1 source file qemu-2.11.1/block/vpc.c: Microsoft
+     * Virtual PC and Microsoft Hyper-V produce and read VHD image sizes
+     * differently. VPC will rely on CHS geometry, while Hyper-V and
+     * disk2vhd use the size specified in the footer.
+     *
+     * Example conversion command from raw (.img) to VHD (.vhd): `qemu-img convert -f raw -o subformat=fixed,force_size -O vpc hd.img hd.vhd`
+     *
+     * QEMU 2.11.1 int 13h AH == 8 has a bug: it reports 1 less cyls (for
+     * both raw .img and .vhd); VirtualBox does it correctly.
+     *
+     * QEMU 2.11.1 autodetects the disk geometry (incorrectly) even if
+     * specified in the .vhd file
+     *
+     * VirtualBox respects the disk geometry in the .vhd file up to the max
+     * of C*H*S == 1024*16*63 =~ 504 MiB; above 1024 cyls it starts doing
+     * transformations.
+     */
+    memset(s = sbuf, 0, sizeof(sbuf));
+    memcpy(s, "conectix", 8); s += 8;  /* signature. */
+    ddb(2);  /* features. Just the reserved bit is set. */
+    ddb(0x10000);  /* format_version. */
+    dd(-1);  /* next_offset high dword. */
+    dd(-1);  /* next_offset low dword. */
+    dd(0);  /* modification_time. */
+    dd(fpp->geometry_sector_count > (ud)65535U * 16U * 255U ? (ud)('w' | 'i' << 8 | 'n' << 16 | ' ' << 24) :
+       (ud)('v' | 'p' << 8 | 'c' << 16 | ' ' << 24));  /* creator_application: Typically "qemu" (CHS), "vpc " (CHS), "qem2" (force_size), "win " (force_size). */
+    ddb(0x50003);  /* creator_version. */
+    dd('W' | 'i' << 8 | '2' << 16 | 'k' << 24);  /* host_os. */
+    dsb(vhd_sector_count);  /* disk_size. */
+    dsb(vhd_sector_count);  /* data_size. */
+    if (fpp->geometry_sector_count <= (ud)1024U * 16U * 63U) {  /* Compatible with bos BIOS and IDE, <= 504 MiB. */
+      dwb((fpp->geometry_sector_count + (16U * 63U - 1U)) / (16U * 63U));  /* disk_geometry.cyls. */  /* Round up. */
+      db(16U);  /* disk_geometry.heads. */
+      db(63U);  /* disk_geometry.secs. */
+    } else if (fpp->geometry_sector_count >= (ud)65535U * 16U * 255U) {
+      dwb(65535U);  /* disk_geometry.cyls. */
+      db(16U);  /* disk_geometry.heads. */
+      db(255U);  /* disk_geometry.secs. */
+    } else {
+      dwb((fpp->geometry_sector_count + (16U * 255U - 1U)) / (16U * 255U));  /* disk_geometry.cyls. */  /* Round up. */
+      db(16U);  /* disk_geometry.heads. */
+      db(255U);  /* disk_geometry.secs. */
+    }
+    ddb(2);  /* disk_type: VHD_FIXED --> 2, VHD_DYNAMIC --> 3. */
+    dd(0);  /* checksum. On mismatch, QEMU reports a warning. */
+    dd(fpp->volume_id);  /* First 4 bytes of identifier: 16-byte big-endian UUID. */
+    dd(fpp->geometry_sector_count);  /* Next 4 bytes of identifier. */
+    db(fpp->fat_fstype + (fpp->fat_count - 1U));  /* Next 1 byte of identifier. */
+    /* VirtualBox doesn't allow adding a disk with the same UUID, so adding
+     * two disk images created with bakefat (without the RNDUUID
+     * command-line flag) won't work. QEMU doesn't have such a limitation.
+     * */
+    memcpy(s, "\xb5\xd4\x99\xe3\xbc\x63\x46", 7); s += 7;  /* identifier: Big endian UUID. */
+    /*db(0);*/  /* saved_state. Trailing NUL bytes can be unspecified. */
+    for (checksum = (ud)-1; s != sbuf; checksum -= *(const ub*)--s) {}
+    s = sbuf + 0x40; ddb(checksum);
+    write_sector(vhd_sector_count);
+  }
 }
 
 static ud align_fat(struct fat_params *fpp, ud fat_clusters_sec_ofs) {
@@ -707,7 +835,8 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "HDD image size flags:%s\n"
              "Cluster size flags: 512B%s\n"
              "Filesystem type flags: FAT12 FAT16 FAT32\n"
-             "FAT count flags: 1FAT 2FATS\n",
+             "FAT count flags: 1FAT 2FATS\n"
+             "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
 }
@@ -812,6 +941,14 @@ int main(int argc, char **argv) {
     } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
       if (fp.fat_count && fp.fat_count != 2) goto error_multiple_fat_count;
       fp.fat_count = 2;
+    } else if (strcasecmp(flag, "NOVHD")) {
+      if (fp.vhd_mode && fp.vhd_mode != VHD_NOVHD) { error_multiple_vhd_mode:
+        bad_usage0("multiple FAT FAT counts specified");
+      }
+      fp.vhd_mode = VHD_NOVHD;
+    } else if (strcasecmp(flag, "VHD")) {
+      if (fp.vhd_mode && fp.vhd_mode != VHD_FIXED) goto error_multiple_vhd_mode;
+      fp.vhd_mode = VHD_FIXED;
     } else {
       msg_printf("fatal: unknown command-line flag: %s\n", flag);
       exit(1);
@@ -931,10 +1068,11 @@ int main(int argc, char **argv) {
       if (fp.fcp.cluster_count == 0xfffeU) fp.fcp.cluster_count -= 10U;  /* Maximum 0xfff4 clusters on a FAT16 filesystem. */
     } else if (fp.fat_fstype == 32) {
       if (log2_size == 41) {  /* Avoid overflows below, make sure that fp.geometry_sector_count fits to ud (32-bit unsigned). */
-        fp.fcp.sector_count = 0xffffffffU / (255U * 63U) * (255U * 63U);  /* An upper limit. */
+        fp.fcp.sector_count = (fp.vhd_mode >= VHD_FIXED ? VHD_MAX_SECTORS : 0xffffffffU) / (255U * 63U) * (255U * 63U);  /* An upper limit. */
+       limit_fat32_by_sector_count:
         /* !! TODO(pts): Make hi lower by doing this without ud overflow: (...) * 512U / ((1U << fp.fcp.log2_sectors_per_cluster) + (2U << fp.fat_count)). */
         hi = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count) >> fp.fcp.log2_sectors_per_cluster;  /* An upper limit on fp.fcp.cluster_count. */
-        lo = hi - ((hi + (2U + 0x7FU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
+        lo = hi - ((hi + (2U + 0x7fU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
         while (lo < hi) {  /* Binary search. About 21 iterations. */
           mid = lo + ((hi - lo) >> 1U);
           if (is_aligned_fat32_sector_count_at_most(&fp, mid + 1U)) {
@@ -946,6 +1084,17 @@ int main(int argc, char **argv) {
         fp.fcp.cluster_count = lo;
       } else if (fp.fcp.cluster_count == 0xffffffeU) {
         fp.fcp.cluster_count -= 9U;  /* Maximum 0xffffff5 clusters on a FAT32 filesystem. */
+      } else if (log2_size == 37 && fp.vhd_mode >= VHD_FIXED) {
+        /* Limit to ~127.498 GiB instead of 128 GiB, for better VHD
+         * compatibility of the virtual IDE controller in Virtual PC.
+         *
+         * The ~127.498 GiB limit probably still applied to the virtual IDE
+         * controller in Virtual PC 2007 (no definitive evidence on the
+         * web). Hyper-V (introduced in 2008) has increased the limit to
+         * 2040 GiB.
+         */
+        fp.fcp.sector_count = (ud)65535U * 16U * 255U / (255U * 63U) * (255U * 63U);
+        goto limit_fat32_by_sector_count;
       }
     }
     /*if (fp.fat_fstype == 32 && log2_size == 41) fp.fcp.cluster_count -= 0x1fff5 + (0x7ebbc5>>6) - 0x1f73e;*/
