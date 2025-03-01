@@ -12,6 +12,14 @@
  * !! Exclude FAT header and partition table from boot_bin, making it shorter.
  * !! Move relevant comments from fat16m.nasm to here.
  * !! Add implementation using <windows.h>, which compiles with MSVC, Borland C compiler and Digital Mars C compiler in addition to OpenWatcom C compiler.
+ * !! Add support for VHD_SPARSE (SPARSEVHD). !! Experiment with block sizes smaller than 2 MiB. (NTFS sparse files have block size 64 KiB.)
+ * !! Add tests for reading the last FAT sector within QEMU and VirtualBox.
+ * !! Add operating system compatibility flag (e.g. no FAT32 for MS-DOS <=6.x, no 1FAT for MS-DOS <=6.x, <=128GB for Virtual PC).
+ * !! Add commnad-line flag to make fat_rootdir_entry_count configurable.
+ * !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32.
+ * !! Add command-line flag to make fp.volume_id configurable.
+ * !! Make it possible to specify the same size etc. flag multiple times, idempontently.
+ * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
  */
 
 #ifndef _FILE_OFFSET_BITS
@@ -276,6 +284,7 @@ static int sfd;
 static const char *sfn;
 
 static inline void db(ub x) { *s++ = x; }
+/* Serializing integers in little endian. */
 #ifdef IS_LE
   static inline void dw(uw x) { *(uw*)s = x; s += 2; }
   static inline void dd(ud x) { *(ud*)s = x; s += 4; }
@@ -283,6 +292,7 @@ static inline void db(ub x) { *s++ = x; }
 #else
   static uw gw(const char *p) { return ((const unsigned char*)p)[0] | ((const unsigned char*)p)[1] << 8; }
   static void dw(uw x) { *s++ = x & 0xff; *s++ = x >> 8; }
+  /* !! Is this shorter: static void dd(ud x) { dw(x); dw(x >> 16); } */
   static void dd(ud x) { *s++ = x & 0xff; *s++ = (x >> 8) & 0xff; *s++ = (x >> 16) & 0xff; *s++ = x >> 24; }
 #endif
 
@@ -572,7 +582,7 @@ static ud align_fat(struct fat_params *fpp, ud fat_clusters_sec_ofs) {
 /* Adjust geometry for rounding in QEMU 2.11.1.
  *
  * Inputs: fpp->fcp.sector_count, fpp->fcp.cluster_count, fpp->fcp.log2_sectors_per_cluster, fpp->fat_fstype.
- * Outputs: fpp->fcp.geometry_sector_count, fpp->fcp.sector_count, fpp->fcp.cluster_count, fpp->cylinder_count (cyls), fpp->head_count (heads), fpp->sectors_per_track (secs).
+ * Outputs: fpp->geometry_sector_count, fpp->fcp.sector_count, fpp->fcp.cluster_count, fpp->cylinder_count (cyls), fpp->head_count (heads), fpp->sectors_per_track (secs).
  */
 static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs) {
   ud cyls, heads, hs;
@@ -616,13 +626,13 @@ static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs)
       heads = (hs - fat_clusters_sec_ofs) >> mod;
       if ((fpp->fcp.sectors_per_fat << (8 - (fpp->fat_fstype == 32))) - 2U < heads) {  /* The new fpp->fcp.cluster_count doesn't fit in the old FAT table. */
         /* This affects FAT16 2M, FAT32 32M, FAT32 64M. */
-#        ifdef DEBUG
-          msg_printf("info: geometry: rounding up with sectors-per-fat increase\n");
-#endif
         ++fpp->fcp.sectors_per_fat;
         fat_clusters_sec_ofs += fpp->fat_count;
         fat_clusters_sec_ofs += align_fat(fpp, fat_clusters_sec_ofs);  /* Realign because fat_clusters_sec_ofs has changed. Also ets fpp->fcp.sector_count. */
         fpp->fcp.sector_count = fat_clusters_sec_ofs + (fpp->fcp.cluster_count << mod);
+#        ifdef DEBUG
+          msg_printf("info: geometry: rounding up with sectors-per-fat increase: sector_count=0x%lx\n", (unsigned long)fpp->fcp.sector_count);
+#        endif
         goto fix_sector_count;
       }
       /* TODO(pts): Add tests. This is never reached. */
@@ -726,7 +736,7 @@ int main(int argc, char **argv) {
 #  endif
   memset(&fp, '\0', sizeof(fp));
   fp.default_log2_sectors_per_cluster = fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
-  fp.volume_id = 0x1234abcd;  /* !! Add command-line flag to make it configurable. */
+  fp.volume_id = 0x1234abcd;
   is_help = argv[1] && strcasecmp(argv[1], "--help") == 0;
   for (arge = (const char **)argv + 1; ; ++arge) {
     if (!*arge) {  /* The last argument is the output image file name (<outfile.img>). */
@@ -741,10 +751,6 @@ int main(int argc, char **argv) {
   }
   if (is_help || (char**)argfn == argv) usage(is_help, argv[0]);
   for (arg = (const char **)argv + 1; arg != arge; ++arg) {
-    /* !! Add number-of-FATs flag. */
-    /* !! Add operating system compatibility flag (e.g. FAT32, 1FAT). */
-    /* !! Make fat_rootdir_entry_count configurable. */
-    /* !! Make floppy parameters configurable. */
     for (flag = *arg; *flag == '-' || *flag == '/'; ++flag) {}  /* Skip leading - and / characters in flag. */
     for (prp = fat12_presets; prp != ARRAY_END(fat12_presets); ++prp) {
       if (strcasecmp(flag, prp->name) == 0) {
@@ -774,7 +780,6 @@ int main(int argc, char **argv) {
     }
     for (csp = sectors_per_cluster_presets_b_9; csp != ARRAY_END(sectors_per_cluster_presets_b_9); ++csp) {
       if (strcasecmp(flag, *csp) == 0) {
-        /* !! Allow idempotent specifications of log2_size and fp.fcp.log2_sectors_per_cluster. */
         if (fp.fcp.log2_sectors_per_cluster != (ub)-1) { error_multiple_spc:
           bad_usage0("multiple sectors-per-cluster specified");
         }
@@ -825,9 +830,9 @@ int main(int argc, char **argv) {
       fp.fat_count = fp.fat_fstype == 32 ? 1 : 2;  /* 2 for compatibility with MS-DOS <=6.22. */
     }
   }
+  if (!fp.vhd_mode) fp.vhd_mode = (log2_size < 0) ? VHD_NOVHD : VHD_FIXED;  /* Autodetect. */
   if (!fp.reserved_sector_count) {  /* Autodetect. */
     if ((fp.reserved_sector_count = fp.default_reserved_sector_count) == 0) {
-      /* !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32. */
       fp.reserved_sector_count = fp.fat_fstype == 32 ? 17 : 1;  /* 17 for compatibility with the Windows XP FAT32 boot sector code (written during Windows XP installation), which loads additional boot code from sector 8. */
     }
   }
