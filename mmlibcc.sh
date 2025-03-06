@@ -99,6 +99,8 @@ else
     exit 2
   fi
 fi
-# !! Delete temporary files.
+
+# !! Remove temporary files even on failure.
+rm -f -- "$prog".wlinkerr "$prog".mu.obj "$prog".rex
 
 : "$0" OK.
