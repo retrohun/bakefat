@@ -132,6 +132,7 @@ typedef long time_t;
 
 /* <string.h> */
 void * __watcall memcpy(void *dest, const void *src, size_t n);
+void * __watcall memmove(void *dest, const void *src, size_t n);
 void * __watcall memset(void *s, int c, size_t n);
 int __watcall strcmp(const char *s1, const char *s2);
 int __watcall strcasecmp(const char *l, const char *r);

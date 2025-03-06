@@ -1246,6 +1246,32 @@ section _TEXT
 		ret
 %endif
 
+%ifdef __NEED_memmove_
+  global memmove_
+  memmove_:  ; void * __watcall memmove(void *dest, const void *src, size_t n);
+		push edi
+		push esi
+		; EAX := argument dest. It will remain in EAX until return.
+		mov esi, edx  ; ESI := argument src.
+		xchg ecx, ebx  ; ECX := argument n; EBX := orig ECX.
+		cmp eax, esi
+		mov edi, eax
+		jnc .reverse
+		rep movsb
+		jmp short .return2
+    .reverse:	add esi, ecx
+		add edi, ecx
+		dec esi
+		dec edi
+		std
+		rep movsb
+		cld
+    .return2:	mov ecx, ebx  ; ECX := orig EBX.
+		pop esi
+		pop edi
+		ret
+%endif
+
 %ifdef __NEED__memset
   global _memset  ; Longer code than memset_.
   _memset:  ; void * __cdecl memset(void *s, int c, size_t n);
