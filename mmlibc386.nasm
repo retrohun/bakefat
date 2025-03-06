@@ -1053,6 +1053,7 @@ section _TEXT
 %endif
 
 %ifdef __NEED___U8RS  ; For OpenWatcom.
+  global __U8RS
   __U8RS:  ; unsigned long long __watcall_but_ruins_ecx __U8RS(unsigned long long a, int b) { return a >> b; }
   ; Shifts unsigned EDX:EAX right by EBX&63, and ruins ECX.
   ; Input: EDX:EAX == a; EBX == b.
@@ -1072,6 +1073,7 @@ section _TEXT
 %endif
 
 %ifdef __NEED___I8RS  ; For OpenWatcom.
+  global __I8RS
   __I8RS:  ; long long __watcall_but_ruins_ecx __I8RS(long long a, int b) { return a >> b; }
   ; Shifts signed EDX:EAX left by EBX&63, and ruins ECX.
   ; Input: EDX:EAX == a; EBX == b.
@@ -1091,6 +1093,7 @@ section _TEXT
 %endif
 
 %ifdef __NEED___I8D  ; For OpenWatcom.
+  global __I8D
   __I8D:
   ; Divides signed EDX:EAX by ECX:EBX, stores the quotient in EDX:EAX and the
   ; remainder in ECX:EBX. Keep other registers (except for EFLAGS) intact.
@@ -1128,6 +1131,7 @@ section _TEXT
 %endif
 
 %ifdef __NEED___U8D  ; For OpenWatcom.
+  global __U8D
   __U8D:
   ; Divides unsigned EDX:EAX by ECX:EBX, store the quotient in EDX:EAX and the
   ; remainder in ECX:EBX. Keeps other registers (except for EFLAGS) intact.
