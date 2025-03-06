@@ -104,6 +104,7 @@ __extension__ typedef long long int64_t;
 
 typedef unsigned size_t;
 typedef int ssize_t;
+typedef int ptrdiff_t;
 typedef long __off_t;
 #if _FILE_OFFSET_BITS == 64  /* Specifgy -D_FILE_OFFSET_BITS=64 for GCC. */
   __extension__ typedef long long off_t;  /* __extension__ is to make it work with `gcc -ansi -pedantic'. */
