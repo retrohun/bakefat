@@ -26,5 +26,6 @@ od -An -to1 -v boot.bin fat12b.bin >boot.od
 rm -f boot.od
 
 sh mmlibcc.sh --sh-script-mydir . "$@" -o bakefat bakefat.c  # -march=i386 -Werror -Wno-n201
+sh mmlibcc.sh --sh-script-mydir . -bwin32 "$@" -o bakefat.exe bakefat.c
 
 : "$0" OK.
