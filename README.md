@@ -307,6 +307,37 @@ Here is how to create floppy images using NASM only:
    qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -drive file=myhd.img,format=raw -drive file=fdsys.img,format=raw,if=floppy -boot c
    ```
 
+## Compatibility and limitations
+
+Each mention of DOS below means both MS-DOS and IBM PC DOS.
+
+Most of the limitations below apply to DOS, Windows, ROM BIOS and MBR
+partitioning.
+
+Limitations:
+
+* We don't care about compatibility with DOS <3.30. QEMU 2.11.1 can't even boot DOS 3.10 from an 1200K floppy image.
+* bakefat can create <=2G (~2 GiB) FAT16 filesystems and <=2T (~2 TiB) FAT32 filesystems on HDD.
+* All FAT16 filesystems created by bakefat on HDD work on DOS >=4.00, Windows 95--98--ME, Windows NT (and derivatives), and they are also able to boot from this filesystem.
+* Only the *2K 16M* and *2K 32M* FAT16 filesystems created by bakefat on HDD work on DOS 3.30. These also work on DOS >3.30, Windows 95--98--ME, Windows NT (and derivatives),
+* All FAT32 filesystems created by bakefat on HDD work on DOS >=7.1, Windows 95 OSR2, Windows 98--ME, Windows 2000 (and later derivatives of Windows NT), and they are also able to boot from this filesystem.
+* DOS <7.1 and Windows 95 before OSR2 (such as RTM and OEM) don't support FAT32, DOS >=7.1 does.
+* Windows NT <=4.0 don't support FAT32, Windows 2000 (and later derivates of Windows NT) does. See [this forum topic](https://www.betaarchive.com/forum/viewtopic.php?t=44400) for adding FAT32 support to Windows NT 4.0, even for booting.
+* DOS <7.1 (including Windows 95 RTM and IBM PC DOS 7.0) doesn't support FAT count 1, DOS >=7.1 (including Windows 95 OSR2 and IBM PC DOS 7.1) does.
+* DOS <4.00 deesn't support >0x10000 sectors (hidden sector count + filesystem sector count), DOS >=4.00 does.
+* DOS 3.30 requires for FAT16 that the cluster size is 2048 bytes. DOS >=4.00 doesn't have this requirement.
+* DOS 3.30 requires for HDD that the number of root directory entries is 512 for booting from this filesystem. DOS 3.30 after booting doesn't have this requirement. DOS >=4.00 doesn't have this requirement.
+* DOS 3.30 requires for FAT16 that the number of clusters is >=0x1fd2 and the number of sectors is >=0x7fe8. For bakefat, this means that only *2K 16M* and *2K 32M* works with DOS 3.30. (The DOS 3.30 *format* command on smaller partitions creates a FAT12 filesystem instead, which DOS 3.30 can read and write and boot from.) DOS >=4.00 doesn't have this requirement.
+* DOS <5.00 requires for booting that *io.sys* starts at the earliest cluster (number 2). DOS >=5.00 doesn't have this limitation: IO.SYS can start anywhere.
+* DOS <=7.1 requires for booting that the clusters of the first 3 (or first 4 for MS-DOS >=7.0) sectors of *io.sys* or *ibmbio.com* are contiguous (increasing by 1 each time) on disk. This is a limitation of the MSLOAD part of *io.sys* and *ibmbio.com*, and it applies unless the boot sector boot code loads the entire *io.sys* or *ibmbio.com*.
+* DOS >=3.30 supports these standard floppy sizes (and some more): 160K, 180K, 320K, 260K, 1200K, 720K, 1440K.
+* DOS <5.00 doesn't support standard 2880K floppies, DOS >=5.00 does.
+* DOS and Windows NT support FAT cluster sizes 512B, 1K, 2K, 4K, 8K, 16K and 32K. Some versions of Windows NT support even larger clusters.
+* DOS <7.1 can access only the first 1024*255*63*512 == 8422686720 bytes (~8.4 GB, ~7.844 GiB) of HDDs. (This is the CHS limitation of 1024 logical cylinders, 255 logical heads, 63 sectors per track, 512 bytes per sector.) DOS >=7.1 and Windows NT 4.0 (and derivatives) can access petabytes using LBA.
+* Windows NT 4.0 can't boot using LBA, so (for safety) the entire boot partition must fit to the first ~7.844 GiB of the HDD. Windows 2000 (and later derivatives of Windows NT) can boot using LBA.
+* The MBR partitioning scheme supports <=2T-512B partitions (and thus filesystems). GPT supports petabytes, but bakefat supports MBR only.
+* DOS doesn't support GPT, Windows NT earlier than Windows Vista (except for Windows XP for amd64) doesn't support GPT. Windows XP can't boot from GPT. Windows Vista and later can't boot from GPT using MBR (BIOS), but it can using UEFI.
+
 ## The bakefat hard disk boot process
 
 This is how the operating system boots from a hard disk image created by
