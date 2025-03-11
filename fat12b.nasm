@@ -380,6 +380,9 @@ assert_at .header+0x3e
 		push di  ; Save.
 		mov si, -.org+.io_sys
 		mov cx, 11  ; .io_sys_end-.io_sys
+		; Not enough space for this speed optimization here.
+		;cmp [es:di], ch  ; Does the name start with NUL?
+		;je short .no_more_entries  ; Speed optimization: if the name starts with NUL, stop scanning the root directory.
 		repe cmpsb
 		jne .not_io_sys
 		cmp [es:di-11+0x1c+2], cl  ; 0x1c is the offset of the dword-sized file size in the FAT directory entry.
@@ -428,6 +431,7 @@ assert_at .header+0x3e
 		;test bl, bl  ; Not needed, ZF is already correct because of `jne' or `and dh, ~...'.
 		jz .found_both_sys_files
 		loop .try_next_entry
+.no_more_entries:
 		mov si, -.org+.errmsg_missing   ; No more root directory entries. This means that kernel file was not found.
 		;jmp short .fatal  ; Fall through.
 ; Prints NUL-terminated message starting at SI, and halts. Ruins many registers.
