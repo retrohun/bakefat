@@ -15,38 +15,51 @@ Floppy drives supported by QEMU 2.11.1:
 |D7|5.25"   |  320 kB| 120|  250K|
 |D8|3.5"    |  360 kB| 144|  250K|
 
+
+DOS standard floppy sizes:
+
+|KiB    |MB alias|sectors|cyls|heads|secs|QEMU autodetect|mdesc|Minimum DOS version|
+|   160K|--      |   320S|  40|    1|   8|D7             | 0xfe|1.00|
+|   320K|--      |   640S|  40|    2|   8|D7             | 0xff|1.10|
+|   180K|--      |   360S|  40|    1|   9|D6             | 0xfc|2.00|
+|   360K|--      |   720S|  40|    2|   9|D6             | 0xfd|2.00|
+|  1200K|1.2MB   |  2400S|  80|    2|  15|D4             | 0xf9|3.00, in QEMU 3.20|
+|   720K|--      |  1440S|  80|    2|   9|D3             | 0xf9|3.20|
+|  1440K|1.44MB  |  2880S|  80|    2|  18|D1             | 0xf0|3.30|
+|  2880K|2.88MB  |  5760S|  80|    2|  36|D2             | 0xf0|5.00|
+
 Floppy sizes supported by QEMU 2.11.1:
 
 |KiB    |MB alias|sectors|cyls|heads|secs|QEMU autodetect|mdesc|DOS support|
 |-------|--------|-------|----|-----|----|---------------|-----|-----------|
 |  1440K|1.44MB  |  2880S|  80|    2|  18|D1 (D4)        | 0xf0|DOS 3.30 added|
-|  1600K|1.6MB   |  3200S|  80|    2|  20|D1 (D4)        | 0xf0||custom|
-|  1680K|1.68MB  |  3360S|  80|    2|  21|D1             | 0xf0||custom|
-|  1722K|1.722MB |  3444S|  82|    2|  21|D1             | 0xf0||custom|
-|  1743K|1.743MB |  3486S|  83|    2|  21|D1             | 0xf0||custom|
-|  1760K|1.76MB  |  3520S|  80|    2|  22|D1             | 0xf0||custom|
-|  1840K|1.84MB  |  3680S|  80|    2|  23|D1             | 0xf0||custom|
-|  1920K|1.92MB  |  3840S|  80|    2|  24|D1             | 0xf0||custom|
+|  1600K|1.6MB   |  3200S|  80|    2|  20|D1 (D4)        | 0xf0|custom|
+|  1680K|1.68MB  |  3360S|  80|    2|  21|D1             | 0xf0|custom|
+|  1722K|1.722MB |  3444S|  82|    2|  21|D1             | 0xf0|custom|
+|  1743K|1.743MB |  3486S|  83|    2|  21|D1             | 0xf0|custom|
+|  1760K|1.76MB  |  3520S|  80|    2|  22|D1             | 0xf0|custom|
+|  1840K|1.84MB  |  3680S|  80|    2|  23|D1             | 0xf0|custom|
+|  1920K|1.92MB  |  3840S|  80|    2|  24|D1             | 0xf0|custom|
 |  2880K|2.88MB  |  5760S|  80|    2|  36|D2             | 0xf0|DOS 5.00 added|
-|  3120K|3.12MB  |  6240S|  80|    2|  39|D2             | 0xf0||custom|
-|  3200K|3.2MB   |  6400S|  80|    2|  40|D2             | 0xf0||custom|
-|  3520K|3.52MB  |  7040S|  80|    2|  44|D2             | 0xf0||custom|
-|  3840K|3.84MB  |  7680S|  80|    2|  48|D2             | 0xf0||custom|
+|  3120K|3.12MB  |  6240S|  80|    2|  39|D2             | 0xf0|custom|
+|  3200K|3.2MB   |  6400S|  80|    2|  40|D2             | 0xf0|custom|
+|  3520K|3.52MB  |  7040S|  80|    2|  44|D2             | 0xf0|custom|
+|  3840K|3.84MB  |  7680S|  80|    2|  48|D2             | 0xf0|custom|
 |   720K|--      |  1440S|  80|    2|   9|D3 (D5)        | 0xf9|DOS 3.20 added|
-|   800K|--      |  1600S|  80|    2|  10|D3             | 0xf0||custom|
-|   820K|--      |  1640S|  82|    2|  10|D3             | 0xf0||custom|
-|   830K|--      |  1660S|  83|    2|  10|D3             | 0xf0||custom|
-|  1040K|1.04MB  |  2080S|  80|    2|  13|D3             | 0xf0||custom|
-|  1120K|1.12MB  |  2240S|  80|    2|  14|D3             | 0xf0||custom|
+|   800K|--      |  1600S|  80|    2|  10|D3             | 0xf0|custom|
+|   820K|--      |  1640S|  82|    2|  10|D3             | 0xf0|custom|
+|   830K|--      |  1660S|  83|    2|  10|D3             | 0xf0|custom|
+|  1040K|1.04MB  |  2080S|  80|    2|  13|D3             | 0xf0|custom|
+|  1120K|1.12MB  |  2240S|  80|    2|  14|D3             | 0xf0|custom|
 |  1200K|1.2MB   |  2400S|  80|    2|  15|D4             | 0xf9|DOS 3.00 added, in QEMU DOS >=3.20|
-|  1476K|1.476MB |  2952S|  82|    2|  18|D4             | 0xf0||custom|
-|  1494K|1.494MB |  2988S|  83|    2|  18|D4             | 0xf0||custom|
-|   880K|--      |  1760S|  80|    2|  11|D5             | 0xf0||custom|
+|  1476K|1.476MB |  2952S|  82|    2|  18|D4             | 0xf0|custom|
+|  1494K|1.494MB |  2988S|  83|    2|  18|D4             | 0xf0|custom|
+|   880K|--      |  1760S|  80|    2|  11|D5             | 0xf0|custom|
 | (720K)|--      |  1440S|  80|    2|   9|(D5) D3        | 0xf8|Sanyo DOS-DOS 2.11 added for 5.25"|
 |   360K|--      |   720S|  40|    2|   9|D6 (D8)        | 0xfd|DOS 2.00 added|
 |   180K|--      |   360S|  40|    1|   9|D6             | 0xfc|DOS 2.00 added and dist|
-|   410K|--      |   820S|  41|    2|  10|D6             | 0xf0||custom|
-|   420K|--      |   840S|  42|    2|  10|D6             | 0xf0||custom|
+|   410K|--      |   820S|  41|    2|  10|D6             | 0xf0|custom|
+|   420K|--      |   840S|  42|    2|  10|D6             | 0xf0|custom|
 |   320K|--      |   640S|  40|    2|   8|D7             | 0xff|DOS 1.10 added|
 |   160K|--      |   320S|  40|    1|   8|D7             | 0xfe|DOS 1.00 added and dist|
 | (360K)|--      |   720S|  80|    1|   9|(D8) D6        | 0xf8|DOS 3.10 added for 3.5"|
