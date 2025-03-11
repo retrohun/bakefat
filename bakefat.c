@@ -20,6 +20,11 @@
  * !! Add command-line flag to make fp.volume_id configurable.
  * !! Make it possible to specify the same size etc. flag multiple times, idempontently.
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
+ *
+ * !! Create io.sys patch MS-DOS 3.30 patch.
+ * !! Release the MS-DOS io.sys patches.
+ * !! Add multisector boot code to detect and boot everything.
+ * !! Add fixup to the multisector boot code to load the entire *io.sys* (or *ibmbio.com*), autodetect the end of MSLOAD, and delete MSLOAD. The benefit is that io.sys can be fragmented. This has to be smart (detect the near jmp? DOS 3.30 doesn't have it), also for small-io-sys.
  */
 
 #ifndef _FILE_OFFSET_BITS
