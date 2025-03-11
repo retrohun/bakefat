@@ -616,9 +616,11 @@ boot_sector_fat32:
 		mov byte [es:di-2], 0xf  ; Set floppy head bounce delay == head settle time, in milliseconds, to 0xf: https://stanislavs.org/helppc/int_1e.html ; https://retrocomputing.stackexchange.com/q/31099/3494
 		mov cx, [bp-.header+.sectors_per_track]
 		mov [es:di-7], cl  ; Set sectors_per_track in the DPT.
+		push ds
+		pop es
 %else
 		mov bx, 0x1e<<2
-		lds si, [bx]  ; int 1eh vector (DPT).
+		les si, [bx]  ; int 1eh vector (DPT).
 %endif
 
 		; Figure out where FAT and data areas start.
@@ -634,20 +636,19 @@ boot_sector_fat32:
 .add_fat:	add ax, [bp-.header+.sectors_per_fat_fat32]
 		adc dx, [bp-.header+.sectors_per_fat_fat32+2]
 		loop .add_fat
+		; Now: CX == 0.
 		push dx
 		push ax  ; dword [bp-.header+.var_clusters_sec_ofs] := DX:AX.
 
-		push ds  ; Segment of dword [.var_orig_int13_vector].
+		push es  ; Segment of dword [.var_orig_int13_vector].
 		push si  ; Offset of dword [.var_orig_int13_vector].
 		push ss  ; Will be discarded by MS-DOS v7 msload. Push segment 0 for compatibility. In practice, msload in MS-DOS v7 ignores this value.
 		;mov bx, 0x1e<<2  ; No need, already true.
 		push bx  ; Will be discarded by MS-DOS v7 msload. Push offset 0x78 == (0x1e<<2) for compatibility. In practice, msload in MS-DOS v7 ignores this value.
 
-		push es
-		pop ds  ; DS := ES (0).
 		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number].
-		mov [bp-.header+.var_single_cached_fat_sec_ofs],   es  ; Set to 0, i.e. cache empty.
-		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], es  ; Set to 0, i.e. cache empty.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs],   cx  ; Set to 0, i.e. cache empty.
+		mov [bp-.header+.var_single_cached_fat_sec_ofs+2], cx  ; Set to 0, i.e. cache empty.
 		;mov [bp-.header+.drive_number], dl  ; MBR has passed drive number in DL. Our mbr.boot_code has also passed it in byte [bp-.header+.drive_number]. !! add back in iboot.nasm.
 		mov es, [bp-.header+.jmp_far_inst+3]  ; mov es, 0x700>>4. Load root directory and kernel (io.sys) starting at 0x70:0 (== 0x700).
 
