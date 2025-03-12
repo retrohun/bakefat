@@ -1117,6 +1117,7 @@ int main(int argc, char **argv) {
         if ((sd)fp.fcp.cluster_count <= 0) bad_usage0("FAT12 filesystem too small, no space for clusters");
         fp.fcp.sectors_per_fat = ((((fp.fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* FAT12. */
       } while (fp.fcp.sectors_per_fat != old_sectors_per_fat);  /* Repeat until a fixed point is found for (fp.fcp.cluster_count, fp.fcp.sectors_per_fat). */
+      if (fp.fcp.cluster_count > 0xff4) bad_usage0("floppy FAT12 cluster size too small to this floppy size, specify at least 1K");  /* This happens with: 2880K 512B */
     }
     fp.geometry_sector_count = fp.fcp.sector_count;
 #    ifdef DEBUG
