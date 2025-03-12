@@ -2,8 +2,8 @@
 
 bakefat is an easy-to-use tool for creating bootable hard disk (HDD) images
 with a FAT16 or FAT32 filesystem, and floppy disk images with a FAT12
-filesystem, usable in virtual machines running DOS (MS-DOS 4.01--6.22 or
-PC-DOS 4.01--7.1) or Windows 3.1--95--95-ME in an emulator (such as QEMU or
+filesystem, usable in virtual machines running DOS (MS-DOS 3.30--8.0 or
+PC-DOS 3.30--7.1) or Windows 3.1--95--95-ME in an emulator (such as QEMU or
 VirtualBox). bakefat is an external tool, i.e. it runs on the host system.
 bakefat creates a FAT filesystem, makes it bootable by writing boot code to
 the boot sector, creates a partition, and makes the system bootable by
@@ -85,8 +85,9 @@ Guest operating systems supported by bakefat for booting:
   *ibmdos.com*.
 * Windows 3.1: Boot to MS-DOS 6.22 or patched 7.1 or patched 8.0 (with
   bakefat), then run *setup.exe* of Windows 3.1.
-* Windows 95--98--ME *io.sys* and community releases based on these. Windows
-  ME is supported only in the multiboot.ru MSDOS8.ISO (get it from
+* Windows 95--98--ME (== MS-DOS 7.0--8.0) *io.sys* and community releases
+  based on these. Windows ME is supported only in the multiboot.ru
+  MSDOS8.ISO (get it from
   [here](http://www.multiboot.ru/download/)) MS-DOS 8.0 community release.
   It's possible to install the GUI by first booting to DOS mode (with
   bakefat), and then running *setup.exe*.
@@ -262,7 +263,7 @@ Here is how to create floppy images using NASM only:
    This command has created a bootable disk image with a FAT12 filesystem,
    but the system files (1 or 2 kernel files and *command.com*) are missing.
 
-6. Obtain a supported version of MS-DOS (3.30--6.22), IBM PC DOS (3.30--7.1)
+6. Obtain a supported version of MS-DOS (3.30--8.0), IBM PC DOS (3.30--7.1)
    or Windows 95--98--ME boot floppy. Software archives typically have the
    boot floppy image as *disk01.img* (or *boot.img*) as part of the download.
 
@@ -311,10 +312,31 @@ Here is how to create floppy images using NASM only:
 
 Each mention of DOS below means both MS-DOS and IBM PC DOS.
 
+Specify thes command-line flags to ensure compatibility:
+
+* If the right command-line flags are specified,
+  disk images created by bakefat are compatible with MS-DOS 3.30--8.0,
+  Windows 95--98--ME (== MS-DOS 7.0--8.0), IBM PC DOS 3.30--7.1 and Windows
+  NT 3.1--4.0, Windows 2000--XP--, and they are also bootable by these
+  systems. (Windows NT--2000--XP booting is not implemented yet.)
+* For DOS 3.30--4.01 floppy compatibility, don't use size *2880K* (use any
+  smaller sizes instead, such as *1440K*), which was introduced in DOS 5.00.
+* For DOS 3.30 hard disk compatibility, specify command-line flags *32M 2K
+  RDEC=512* or *16M 2K RDEC=512*. The *RDEC=512* is only needed for booting.
+* For DOS 3.30--7.0 (and Windows 95 A == Windows 95 RTM) and Windows NT
+  3.1--4.0 hard disk compatibility, don't use filesystem *FAT32*. Do this by
+  specifying size *2G* or smaller, bakefat will use *FAT16* then.
+* Also for DOS 3.30--7.0 (and Windows 95 A == Windows 95 RTM) hard disk
+  compatibility, don't specify *1FAT*. bakefat uses *2FAT* by default.
+* After creating the filesystem, to make it bootable, copy the kernel file
+  *io.sys* (or *msbio.com*) first, before setting the volume label or
+  creating any file or directory. The order of the subsequent files and
+  directories doesn't matter.
+
 Most of the limitations below apply to DOS, Windows, ROM BIOS and MBR
 partitioning.
 
-Limitations:
+Long list of limitations (may still be incomplete):
 
 * We don't care about compatibility with DOS <3.30. QEMU 2.11.1 can't even boot DOS 3.10 from an 1200K floppy image.
 * bakefat can create <=2G (~2 GiB) FAT16 filesystems and <=2T (~2 TiB) FAT32 filesystems on HDD.
