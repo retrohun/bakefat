@@ -6,6 +6,10 @@
  * Compile with GCC for Unix: gcc -ansi -pedantic -W -Wall -Wno-overlength-strings -Werror -s -O2 -o bakefat bakefat.c
  * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
  *
+ * !! Add compatibility flag (and documentation) for reserved sector count.
+ * !! Fix last-sector-read bug.
+ * !! doc: Check wheter MS-DOS 8.0 needs the first 4 sectors of io.sys to be contiguous.
+ * !! doc: Can VirtualBox open with .img, without VBOX_E_OBJECT_NOT_FOUND? Or just .vhd extension?
  * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
  * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
  * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
@@ -22,7 +26,7 @@
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
  * !! Move all relevant comments from fat16m.nasm to bakefat.c, and remove fat16m.nasm.
  *
- * !! Create io.sys patch MS-DOS 3.30 patch.
+ * !! Create io.sys patch for MS-DOS 3.30.
  * !! Release the MS-DOS io.sys patches.
  * !! Add multisector boot code to detect and boot everything.
  * !! Add fixup to the multisector boot code to load the entire *io.sys* (or *ibmbio.com*), autodetect the end of MSLOAD, and delete MSLOAD. The benefit is that io.sys can be fragmented. This has to be smart (detect the near jmp? DOS 3.30 doesn't have it), also for small-io-sys.
