@@ -24,9 +24,9 @@ cpu 8086
 PTYPE:  ; Partition type.
 .EMPTY equ 0
 .FAT12 equ 1
-.FAT16_LESS_THAN_32MIB equ 4
+.FAT16_LESS_THAN_32MIB equ 4  ; Works on DOS <=3.30.
 .EXTENDED equ 5
-.FAT16 equ 6
+.FAT16 equ 6  ; Needs DOS >=4.00.
 .HPFS_NTFS_EXFAT equ 7
 .FAT32 equ 0xb
 .FAT32_LBA equ 0xc
@@ -228,9 +228,13 @@ assert_at .header+0x1bc
 .partition_1:
 assert_at .header+0x1be  ; Partition 1.
 %if fat_32
-.ptype: equ PTYPE.FAT32_LBA  ; Windows 95 OSR2 cannot read the filesystem if PTYPE.FAT16 is (incorrectly) specified here.
+  .ptype equ PTYPE.FAT32_LBA  ; Windows 95 OSR2 cannot read the filesystem if PTYPE.FAT16 is (incorrectly) specified here.
 %else
-.ptype: equ PTYPE.FAT16
+  %if fat_sector_count<=65535
+    .ptype equ PTYPE.FAT16_LESS_THAN_32MIB  ; For DOS 3.30.
+  %else
+    .ptype equ PTYPE.FAT16  ; Needs DOS >=4.00.
+  %endif
 %endif
 		partition_entry_lba PSTATUS.ACTIVE, .ptype, partition_1_sec_ofs, fat_sector_count
 assert_at .header+0x1ce  ; Partition 2.

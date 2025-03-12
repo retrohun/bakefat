@@ -575,7 +575,7 @@ static void create_fat(const struct fat_params *fpp) {
     db(PSTATUS_ACTIVE);  /* Status (PSTATUS.*: 0: inactive, 0x80: active (bootable)). */
     db(0);  /* CHS head of first sector. */
     dw(0);  /* CHS cylinder and sector of first sector. */
-    db(fpp->fat_fstype == 32 ? PTYPE_FAT32_LBA : PTYPE_FAT16);  /* Partition type (PTYPE.*). */
+    db(fpp->fat_fstype == 32 ? PTYPE_FAT32_LBA : fpp->fcp.sector_count >> 16 ? PTYPE_FAT16 : PTYPE_FAT16_LESS_THAN_32MIB);  /* Partition type (PTYPE.*). */
     db(0);  /* CHS head of last sector. */
     dw(0);  /* CHS cylinder and sector of last sector. */
     dd(fpp->hidden_sector_count);  /* Sector offset (LBA) of the first sector. */
