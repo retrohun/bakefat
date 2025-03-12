@@ -887,6 +887,7 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "Cluster size flags: 512B%s\n"
              "Filesystem type flags: FAT12 FAT16 FAT32\n"
              "FAT count flags: 1FAT 2FATS FC=<number>\n"
+             "Root directory entry count: RDEC=<number>\n"
              "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
@@ -990,8 +991,15 @@ int main(int argc, char **argv) {
     } else if (strcasecmp(flag, "FAT32") == 0) {
       if (fp.fat_fstype && fp.fat_fstype != 32) goto error_multiple_fat_fstype;
       fp.fat_fstype = 32;
+    } else if (strncasecmp(flag, "RDEC=", 5) == 0) {
+      if (parse_ud(flag + 5, &u) != PARSEINT_OK) goto error_invalid_integer;
+      if (u - 1U > 0xfff0U - 1U) bad_usage0("root directory entry count must be between 1 and 65520");
+      if (fp.fcp.rootdir_entry_count && fp.fcp.rootdir_entry_count != u) {
+        bad_usage0("multiple root directory entry counts specified");
+      }
+      fp.fcp.rootdir_entry_count = u;
     } else if (strncasecmp(flag, "FC=", 3) == 0) {
-      if (parse_ud(flag + 3, &u) != PARSEINT_OK) { /*error_invalid_integer:*/
+      if (parse_ud(flag + 3, &u) != PARSEINT_OK) { error_invalid_integer:
         bad_usage1("invalid integer in flag", flag);
       }
       if (u - 1U > 2U - 1U) bad_usage0("FAT FAT count must be 1 or 2");
@@ -1041,8 +1049,8 @@ int main(int argc, char **argv) {
     if ((fp.fcp.rootdir_entry_count = fp.default_rootdir_entry_count) == 0) {  /* Autodetect. */
       fp.fcp.rootdir_entry_count = 128;  /* !! Maybe 256? Look at alignment. */
     }
-    fp.fcp.rootdir_entry_count = (fp.fcp.rootdir_entry_count + 0xf) & ~0xf;  /* Round up to a multiple of 16. */
   }
+  fp.fcp.rootdir_entry_count = (fp.fcp.rootdir_entry_count + 0xf) & ~0xf;  /* Round up to a multiple of 16. */
   if (fp.fat_fstype == 32) fp.fcp.rootdir_entry_count = 0;
   if (fp.fcp.log2_sectors_per_cluster == (ub)-1) fp.fcp.log2_sectors_per_cluster = fp.default_log2_sectors_per_cluster;  /* Can still be (ub)-1 (unspecified) for non-floppy. */
   if (log2_size < 0) {  /* Floppy FAT12. */
