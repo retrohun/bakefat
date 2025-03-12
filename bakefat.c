@@ -808,6 +808,49 @@ static ub is_aligned_fat32_sector_count_at_most(const struct fat_params *fpp, ud
   return fat_sector_in_cluster_count <= fp.fcp.sector_count && fat_clusters_sec_ofs <= fp.fcp.sector_count - fat_sector_in_cluster_count;
 }
 
+typedef enum parseint_error_t {
+  PARSEINT_OK = 0,
+  PARSEINT_BAD_PREFIX = 1,
+  PARSEINT_BAD_CHAR = 2,
+  PARSEINT_OVERFLOW = 3
+} parseint_error_t;
+
+/* Parses a C unsigned decimal, hexadecimal, octal literal, sets *result_ptr
+ * to a result. Returns PARSEINT_OK == 0 on success.
+ */
+static parseint_error_t parse_ud(const char *s, ud *result_ptr) {
+  ud u, limit;
+  ub base, digit;
+  parseint_error_t result;
+#  if ('A' | 0x20) != 'a'
+#    error ASCII required.
+#  endif
+  if (s[0] == '0' && (s[1] | 0x20) == 'x') {
+    base = 16;
+    limit = (ud)-1 / 16U;
+    s += 2;
+  } else if (s[0] == '0') {
+    base = 8;
+    limit = (ud)-1 / 8U;
+    ++s;
+  } else if ((s[0] - ('1' + 0U)) <= 9U - 1U) {
+    base = 10;
+    limit = (ud)-1 / 10U;
+  } else {
+    return PARSEINT_BAD_PREFIX;
+  }
+  for (u = 0, result = PARSEINT_OK; *s != '\0'; ++s) {
+    digit = (base == 16 && (*s | 32) - ('a' + 0U) < 6U) ? (*s | 32) - ('a' - 10U) : *s - ('0' + 0U);
+    if (digit >= base) return PARSEINT_BAD_CHAR;
+    if (u > limit) result = PARSEINT_OVERFLOW;
+    u *= base;
+    if (u + digit < u) result = PARSEINT_OVERFLOW;
+    u += digit;
+  }
+  *result_ptr = u;
+  return result;
+}
+
 static noreturn void usage(ub is_help, const char *argv0) {
   char *p = sbuf;  /* TODO(pts): Check for overflow below. */
   const char **csp;
@@ -843,7 +886,7 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "HDD image size flags:%s\n"
              "Cluster size flags: 512B%s\n"
              "Filesystem type flags: FAT12 FAT16 FAT32\n"
-             "FAT count flags: 1FAT 2FATS\n"
+             "FAT count flags: 1FAT 2FATS FC=<number>\n"
              "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
@@ -851,6 +894,11 @@ static noreturn void usage(ub is_help, const char *argv0) {
 
 static noreturn void bad_usage0(const char *msg) {
   msg_printf("fatal: %s\n", msg);
+  exit(1);
+}
+
+static noreturn void bad_usage1(const char *msg, const char *arg) {
+  msg_printf("fatal: %s: %s\n", msg, arg);
   exit(1);
 }
 
@@ -866,6 +914,7 @@ int main(int argc, char **argv) {
   uw old_sectors_per_fat;
   ud fat_clusters_sec_ofs;
   ud hi, lo, mid;
+  ud u;
 
   (void)argc;
 #  ifdef __MMLIBC386__
@@ -941,10 +990,17 @@ int main(int argc, char **argv) {
     } else if (strcasecmp(flag, "FAT32") == 0) {
       if (fp.fat_fstype && fp.fat_fstype != 32) goto error_multiple_fat_fstype;
       fp.fat_fstype = 32;
-    } else if (strcasecmp(flag, "1FAT") == 0 || strcasecmp(flag, "1F") == 0) {
-      if (fp.fat_count && fp.fat_count != 1) { error_multiple_fat_count:
+    } else if (strncasecmp(flag, "FC=", 3) == 0) {
+      if (parse_ud(flag + 3, &u) != PARSEINT_OK) { /*error_invalid_integer:*/
+        bad_usage1("invalid integer in flag", flag);
+      }
+      if (u - 1U > 2U - 1U) bad_usage0("FAT FAT count must be 1 or 2");
+      if (fp.fat_count && fp.fat_count != u) { error_multiple_fat_count:
         bad_usage0("multiple FAT FAT counts specified");
       }
+      fp.fat_count = u;
+    } else if (strcasecmp(flag, "1FAT") == 0 || strcasecmp(flag, "1F") == 0) {
+      if (fp.fat_count && fp.fat_count != 1) goto error_multiple_fat_count;
       fp.fat_count = 1;
     } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
       if (fp.fat_count && fp.fat_count != 2) goto error_multiple_fat_count;
