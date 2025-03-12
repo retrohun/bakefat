@@ -1,9 +1,9 @@
 # bakefat: bootable external FAT disk image creator for DOS and Windows 3.1--95--98--ME
 
-bakefat is an easy-to-use tool for creating bootable hard disk images with a
-FAT16 or FAT32 filesystem, and floppy disk images with a FAT12 filesystem,
-usable in virtual machines running DOS (MS-DOS 4.01--6.22 or PC-DOS
-4.01--7.1) or Windows 3.1--95--95-ME in an emulator (such as QEMU or
+bakefat is an easy-to-use tool for creating bootable hard disk (HDD) images
+with a FAT16 or FAT32 filesystem, and floppy disk images with a FAT12
+filesystem, usable in virtual machines running DOS (MS-DOS 4.01--6.22 or
+PC-DOS 4.01--7.1) or Windows 3.1--95--95-ME in an emulator (such as QEMU or
 VirtualBox). bakefat is an external tool, i.e. it runs on the host system.
 bakefat creates a FAT filesystem, makes it bootable by writing boot code to
 the boot sector, creates a partition, and makes the system bootable by
@@ -329,7 +329,7 @@ Limitations:
 * DOS 3.30 requires for HDD that the number of root directory entries is 512 for booting from this filesystem. DOS 3.30 after booting doesn't have this requirement. DOS >=4.00 doesn't have this requirement.
 * DOS 3.30 requires for FAT16 that the number of clusters is >=0x1fd2 and the number of sectors is >=0x7fe8. For bakefat, this means that only *2K 16M* and *2K 32M* works with DOS 3.30. (The DOS 3.30 *format* command on smaller partitions creates a FAT12 filesystem instead, which DOS 3.30 can read and write and boot from.) DOS >=4.00 doesn't have this requirement.
 * DOS <5.00 requires for booting that *io.sys* starts at the earliest cluster (number 2). DOS >=5.00 doesn't have this limitation: IO.SYS can start anywhere.
-* DOS <=7.1 requires for booting that the clusters of the first 3 (or first 4 for MS-DOS >=7.0) sectors of *io.sys* or *ibmbio.com* are contiguous (increasing by 1 each time) on disk. This is a limitation of the MSLOAD part of *io.sys* and *ibmbio.com*, and it applies unless the boot sector boot code loads the entire *io.sys* or *ibmbio.com*.
+* DOS <=7.1 requires for booting that the clusters of the first 3 (or first 4 for MS-DOS >=7.0) sectors of *io.sys* or *ibmbio.com* are contiguous (increasing by 1 each time) on disk. This is a limitation of the *msload* part of *io.sys* and *ibmbio.com*, and it applies unless the boot sector boot code loads the entire *io.sys* or *ibmbio.com*.
 * DOS >=3.30 supports these standard floppy sizes (and some more): 160K, 180K, 320K, 260K, 1200K, 720K, 1440K.
 * DOS <5.00 doesn't support standard 2880K floppies, DOS >=5.00 does.
 * DOS and Windows NT support FAT cluster sizes 512B, 1K, 2K, 4K, 8K, 16K and 32K. Some versions of Windows NT support even larger clusters.
@@ -339,6 +339,12 @@ Limitations:
 * DOS doesn't support GPT, Windows NT earlier than Windows Vista (except for Windows XP for amd64) doesn't support GPT. Windows XP can't boot from GPT. Windows Vista and later can't boot from GPT using MBR (BIOS), but it can using UEFI.
 
 ## The bakefat hard disk boot process
+
+See [boot_process.md](boot_process.md) for a longer description of the BIOS
+(legacy) boot process in general (unrelated to bakefat).
+
+Please note that bakefat creates floppy disk and hard disk images which can
+boot in BIOS (legacy, MBR) mode, rather than the newer UEFI mode.
 
 This is how the operating system boots from a hard disk image created by
 bakefat:

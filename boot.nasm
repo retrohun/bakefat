@@ -5,47 +5,10 @@
 ; Compile with: nasm -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
+; See boot_process.md for a general description of the BIOS (legacy, MBR)
+; boot process.
+;
 ; See fat16m.nasm for more docs and TODOs.
-;
-; MS-DOS 4.01--6.22 (and PC-DOS 4.01--7.1) boot process from HDD:
-;
-; * The BIOS loads the MBR (HDD sector 0 LBA) to 0x7c00 and jumps to
-;   0:0x7c00. The BIOS passes .drive_number (typically 0x80) in register DL.
-;   See also https://pushbx.org/ecm/doc/ldosboot.htm#protocol-rombios-sector
-; * The MBR contains the boot code and the partition table (up to 4 primary
-;   partitions).
-; * The boot code in the MBR finds the first active partition, and loads its
-;   boot sector (sector 0 of the partition) to jumps to 0:0x7c00. The boot
-;   code in the MBR passes .drive_number in register DL.
-;   See also https://pushbx.org/ecm/doc/ldosboot.htm#protocol-mbr-sector
-; * In case of MS-DOS and PC-DOS the boot sector is the very first sector of
-;   a FAT12 or FAT16 file system, and it starts with a jump instruction,
-;   then it contains the FAT filesystem headers (i.e. BIOS Parameter Block,
-;   BPB), then it contains the boot code.
-; * The boot code in the boot sector (msboot, MS-DOS source:
-;   boot/msboot.asm) finds io.sys in the root directory (and it saves the
-;   directory entry to 0x500), msdos.sys (and it saves the directory entry
-;   to 0x520), loads the first 3 sectors of io.sys (i.e. msload) to 0x700,
-;   and jumps to 0x70:0. msboot passes .drive_number in DL,
-;   .media_descriptor (media byte) in CH, sector offset of the first cluster
-;   (cluster 2) in AX:BX.
-;   See also https://pushbx.org/ecm/doc/ldosboot.htm#protocol-sector-msdos6
-; * msload (MS-DOS source: bios/msload.asm) loads the rest of io.sys
-;   (msbio.bin) to 0x700 (using the start cluster number put at 0x51a by
-;   msboot), and jumps to 0x70:0. The file start offset of msbio.bin within
-;   io.sys depends on the DOS version. It's the \xe9 (jmp near) byte of the
-;   first \x0d\x0a\x00\xe9 string within the first 0x600 bytes of io.sys.
-;   msload passes DL, CH, AX and BX as above.
-; * The first 3 bytes of msbio.bin (START$) jump to the INIT function.
-; * The INIT function (part of MS-DOS source: bios/msinit.asm) loads
-;   msdos.sys (using the start cluster number put at 0x53a by msboot). It
-;   starts with the cluster number in the root directory (already load by
-;   msboot to word [0x53a] == word [0x520+0x1a]).
-; * DOS processes config.sys, loading additional drivers.
-; * DOS loads command.com.
-; * command.com processes autoexec.bat.
-; * command.com displays the prompt (e.g. `C>` or `C:\>`), and waits for
-;   user input.
 ;
 ; The boot code in this file can boot from a HDD, but not from a floppy
 ; disk, because:
