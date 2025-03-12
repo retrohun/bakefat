@@ -20,6 +20,7 @@
  * !! Add command-line flag to make fp.volume_id configurable.
  * !! Make it possible to specify the same size etc. flag multiple times, idempontently.
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
+ * !! Move all relevant comments from fat16m.nasm to bakefat.c, and remove fat16m.nasm.
  *
  * !! Create io.sys patch MS-DOS 3.30 patch.
  * !! Release the MS-DOS io.sys patches.

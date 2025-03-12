@@ -1,5 +1,10 @@
 #! /bin/sh --
 # by pts@fazekas.hu at Wed Dec 25 13:47:54 CET 2024
+#
+# This is a legacy test script. All users should use the bakefat command,
+# documented in README.md. instead.
+#
+
 set -ex
 test "$0" = "${0%/*}" || cd "${0%/*}"
 

@@ -1,0 +1,813 @@
+Download:
+
+* https://web.archive.org/web/20221002040438/https://www.allbootdisks.com/disk_files/Win98se/IO.SYS  (old, unpatched)
+* https://web.archive.org/web/20250129012842/https://www.allbootdisks.com/disk_files/Win98se/COMMAND.COM
+* https://web.archive.org/web/20250129230742/https://www.allbootdisks.com/disk_files/Win98se_No_RamDrive/MEM.EXE
+* https://web.archive.org/web/20020204073516/http://download.microsoft.com/download/win98/patch/22527/w98/en-us/311561usa8.exe  (contains the patch)
+
+-hdachs has been removed in QEMU 2.12.
+
+'-hdachs' gives the physical HDD geometry which is has the following maximum parameters: 16383,16,63 (still enforced in QEMU 2.11.1)
+
+-hdachs c,h,s[,t]: force hard disk 0 physical geometry and the optional BIOS translation (t=none, rechs, lba, auto, large) (usually QEMU can guess them)
+
+Equivalent -drive: cyls=c,heads=h,secs=s[,trans=t]
+
+!! What is the autodection algorithm in QEMU 2.11.1:
+
+* heads is always 16, sectors is always 63, cylinders is limited to 16383
+* trace_hd_geometry_guess(blk, *pcyls, *pheads, *psecs, translation)
+
+The disk is said to be 10786 MB by the qemu BIOS, while in reality
+Linux reports: 80026 MB. Linux reports CHS=65535/16/63, while fdisk
+reports: 155061,16,63
+
+LBA == logical block addressing
+
+https://web.archive.org/web/20190323052230/http://web.allensmith.net/Storage/HDDlimit/Address.htm
+
+  Different BIOS and IDE Limits: The original BIOS Int 13h system call passed
+  the Cylinder, Head, Sector (CHS) address directly to the IDE hard drive
+  controller. Which requires accepting the lowest of the limits for each
+  value, causing a capacity limit of 504MB (528 million Bytes).
+
+                       BIOS int 13h  IDE (ATA)  QEMU          minimum
+  -------------------------------------------------------------------
+  Maximum Cylinders    1024          65536      16383         1024
+  Maximum Heads         255             16         16           16
+  Max. Sectors/track     63            256         63           63
+  Maximum Capacity     7.844GiB        128GiB      15.74GiB    504MiB
+
+int 12h AH==2: Read Sectors From Drive:
+  0 <= cylinder <= 1023, in CX
+  1 <= sector <= 63, in CX
+  0 <= head <= 254, in DH (because MS-DOS and Windows 95 doesn't support 256 heads)
+
+!! How much can MS-DOS 6.22 see in QEMU? 1024*16*63*512/1024/1024 == 504 MiB. Why can't it see more? Doesn't it use BIOS int 13h AH==2?
+
+All versions of MS-DOS, (including MS-DOS 7 and Windows 95) have a bug which
+prevents booting disk drives with 256 heads (register value 0xFF), so many
+modern BIOSes provide CHS translation mappings with at most 255 (0xFE)
+heads,[1][2] thus reducing the total addressable space to exactly 8032.5 MiB
+(approx 7.844 GiB).[3]
+
+https://download.qemu.org/qemu-2.11.1.tar.bz2
+old: http://download.qemu-project.org/qemu-2.11.1.tar.bz2
+
+EDD (EBIOS) by Phoenix:
+
+* Enhanced Disk Drive Specification, version 1.1
+* 1995-01-26 (MS-DOS 6.22 was released in 1994-06)
+* https://www.t10.org/ftp/t10/document.95/95-153r0.pdf
+
+MS-DOS 6.22 io.sys uses int 13h with AH values:
+
+* AH==0
+* AH==2
+* AH==8
+* AH==15h
+* AH==16h
+* AH==17h
+* AH==18h
+* AH==20h
+* (plus some more)
+
+$ qemu-system-i386 -trace help 2>&1 | grep geom
+hd_geometry_lchs_guess
+hd_geometry_guess
+$ qemu-system-i386 -trace enable=hd_geometry_\* -fda ms-dos-6.22-just-boot-without-cd.img -hda hda.img -boot a
+21829@1735083862.120442:hd_geometry_guess blk 0x55e027d03b00 CHS 16383 16 63 trans 2  # For 8 GiB.
+21895@1735083930.406112:hd_geometry_guess blk 0x55a26e633b00 CHS 1015 16 63 trans 1  # For 500 MiB.
+22004@1735083978.727801:hd_geometry_guess blk 0x564b6ef5bb00 CHS 1024 16 63 trans 1  # For 504 MiB.
+27404@1735088427.323059:hd_geometry_guess blk 0x560858fe1670 CHS 1024 16 63 trans 1  # For 1024*16*63*512 bytes.
+22022@1735083988.436518:hd_geometry_guess blk 0x562b06598b00 CHS 1026 16 63 trans 2  # For 505 MiB.
+24144@1735085707.303272:hd_geometry_guess blk 0x5597806e8da0 CHS 4764 16 63 trans 2  # For 2345 MiB, 2344.78125 MiB.
+25181@1735086639.348334:hd_geometry_guess blk 0x5573d6304da0 CHS 16320 16 63 trans 2  # For 1024*255*63*512 bytes. This is a perfect fit.
+26419@1735087609.562829:hd_geometry_guess blk 0x55a6c4ac5da0 CHS 16065 16 63 trans 2  # For 1008*255*63*512 bytes. This is a perfect fit.
+  27111@1735088157.751396:hd_geometry_lchs_guess blk 0x55f946af4670 LCHS 1008 255 63
+
+Geometry reported by int 13h AH==8:
+
+; For 1024*16*63*512 bytes:  00 ff fe 0f
+; H == 16
+; S == 63
+; C == 1023 (too small, this should be 1024, maybe a QEMU bug: off-by-one error)
+; MiB == 1023*16*63*512 bytes (too small by ~0.5 MiB)
+
+; For 505 MiB: 00 ff fe 0f
+; H == 16
+; S == 63
+; C == 1023 (why not 1026??)
+; MiB == 16*63*1023*512/1024/1024 == 503.5078125 (small)
+
+; For 2345 MiB: 00 bf 51 7f
+; H == 128
+; S == 63
+; C == 593 (why not more??)
+; MiB == 127*63*593*512/1024/1024 == 2316.69580078125 (small)
+
+; For 1024*255*63*512 bytes: 00 ff fe fe
+; H == 255
+; S == 63
+; C == 1023 (too small, this should be 1024, maybe a QEMU bug: off-bye-one error)
+; MiB == 1023*255*63*512 bytes (too small by ~8 MiB)
+
+; For 1008*255*63*512 bytes:  00 ff ee fe
+; H == 255
+; S == 63
+; C == 1007 (too small, this should be 1008, maybe a QEMU bug: off-by-one error; MS-DOS 6.22 fdisk will use this much)
+; MiB == 1007*255*63*512 bytes (too small by ~8 MiB)
+
+... so the disk image has to be overallocated by 255*63*512 bytes
+
+---
+
+VHD (.vhd, Virtual PC, VPC) dynamic disk image:
+
+* https://github.com/libyal/libvhdi/blob/main/documentation/Virtual%20Hard%20Disk%20(VHD)%20image%20format.asciidoc
+* a fixed-size VHD has only an 512-byte footer appended, see also vhd.nasm
+* generate a dynamic VHD: nasm-0.98.39 -DFAT_COUNT=2 -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm && rm -f hda.img && truncate -s 2155216896 hda.img && dd if=fat16m.bin bs=65536 of=hda.img conv=notrunc,sparse && mdir -i hda.img -a && qemu-img convert -f raw -O vpc hda.img hda.conv.vhd && ls -ld hda.conv.vhd
+* !! Why is it 2 MiB? Isn't the block bitmap used to save space within the block? (Or are all-zero sectors also stored?)
+* !! Make bakefat support generating fixed-size VHD and dynamic VHD
+* CHS calculations are still wrong in qemu-system-i386, even though the VHD footer specifies cyls, heads and secs
+* `qemu-system-i386 -hda ...' autodetects dynamic VHD, but it fails to recognize fixed-size VHD (it detects it as raw, which sort-of-works, except for the write protection on the MBR)
+* Use `qemu-system-i386 -drive file=hd.img,format=raw' for raw .img.
+* Use `qemu-system-i386 -drive file=hd.vhd,format=vpc' for fixed-size VHD and dynamic VHD.
+* Mtools (`mdir -i hd.img' and `mdir -i hd.vhd') works with raw .img and fixed-size VHD, it doesn't work with dynamic VHD.
+* !! Can a dynamic VHD header and a FAT filesystem header be present in block 0? Even if yes, the rest of the data wouldn't be contiguous in the dynamic VHD.
+* the newest VMWare Player also supports the VHD format (since ~2014)
+* !! optionall create a tiny .vmdk file referencing the .vhd file: vboxmanage internalcommands createrawvmdk -filename hdk.vmdk -rawdisk hdk.img 
+
+---
+
+VirtualBox VM configuration commands:
+
+```
+$ vboxmanage modifyvm MyDOS --biosbootmenu disabled
+$ vboxmanage modifyvm MyDOS --bioslogofadein off
+$ vboxmanage modifyvm MyDOS --bioslogofadeout off
+$ vboxmanage modifyvm MyDOS --bioslogodisplaytime 0
+```
+
+---
+
+Alternative to VHD for raw images with VirtualBox: a small (<1 KiB), ASCII
+VMware .vmdk file describing the raw image:
+
+* https://forums.virtualbox.org/viewtopic.php?t=75392
+* https://superuser.com/questions/645434/use-raw-partition-image-in-virtualbox
+* `vboxmanage internalcommands createrawvmdk -filename hdk.vmdk -rawdisk hdk.img`
+
+---
+
+Update 9:	Directly boot NTLDR of WinNT/2K/XP and IO.SYS of Win9x/ME and
+		KERNEL.SYS of FreeDOS. Examples:
+
+			chainloader --edx=0xPPYY (hd0,0)/ntldr
+			boot  # jmp 0x2000:0  !! PP may be left unspecified: https://retrocomputing.stackexchange.com/q/31393
+
+			chainloader --edx=0xYY (hd0,0)/io.sys
+			boot  # jmp 0:0x700
+
+			chainloader --ebx=0xYY (hd0,0)/kernel.sys
+			boot  # jmp 0x60:0
+
+		Hex YY specifies the boot drive number, and hex PP in DH
+		specifies the boot partition number of NTLDR (!! partition 1
+		is 0). If the boot drive is floppy, PP should be the hex
+		value ff, i.e., decimal 255.
+
+		For KERNEL.SYS of FreeDOS, the --edx won't work,
+		use --ebx please.
+
+		The option --edx ( --ebx ) can be omitted if the file is in
+		its normal place. But in some cases, those options are needed.
+
+		If, e.g., the ntldr file is in an ext2 partition called
+		(hd2,8) while you want it to think of the Windows partition
+		(hd0,7) as the boot partition, then --edx is required:
+
+			chainloader --edx=0x0780 (hd2,8)/ntldr
+
+		For DOS kernels(i.e., IO.SYS and KERNEL.SYS), the boot
+		partition number is meaningless, so you only need to specify
+		the correct boot drive number YY(but specifying the boot
+		partition number is harmless).
+
+Update 11:	stage2 of Grub Legacy can be chainloaded in this way:
+
+			chainloader --force --load-segment=0 --load-offset=0x8000 --boot-cs=0 --boot-ip=0x8200 (...)/.../stage2
+
+	While the startup code of grldr might fail to load GRLDR in NTFS
+	partitions, it always successfully loads GRLDR in FAT partitions(and
+	even in ext2/ext3 partitions).
+
+	Note that NTLDR only loads the startup code of grldr(i.e., the leading
+	16 sectors of grldr), not the whole grldr file.
+
+	Thus, C:\GRLDR must exist(here C: can be NTFS), since it is used for
+	BOOT.INI and NTLDR. If C: is NTFS, X:\GRLDR should exist as well,
+	where X: stands for a certain FAT partition.
+
+---
+
+Boot sector code #2:
+
+* Can boot:
+  * `ntldr`: Windows NT 3.1--3.5--3.51--4.1, Windows 2000--XP.
+    * Keep the original boot sector at 0x7c00..0x7c24. Set byte [0x7c02] :=
+      0x90, changed by the MBR boot code. These are needed for Windows to
+      find the boot partition
+      (https://retrocomputing.stackexchange.com/a/31399).
+    * Load the file to 0x2000:0. Set DL to the drive number.
+      Jump to 0x2000:0.
+  * `grldr`: GRUB4DOS.
+    * Same load protocol as for *ntldr*.
+  * `kernel.sys`: FreeDOS and SvarDOS.
+    * Load the file to 0x60:0. Set BL to the drive number. For good measure,
+      we also keep the drive number in DL (unused by FreeDOS and SvarDOS).
+      Set SS:BP to the BPB, with .drive_number and .hidden_sector_count
+      filled. For good measure, set DS := SS. Jump to 0x60:0.
+    * How to (not) pass a kernel command line?
+      * FreeDOS 1.3 kernel.sys doesn't support a command line.
+      * https://github.com/FDOS/kernel/blob/5de2eb1aa01b0129b046cf06338453a233c6597b/kernel/kernel.asm#L195-L219
+      * If the boot sector boot code wants to pass a kernel command line, then before jumping to 0x60:0:
+        * It sets BP to at least >= 0x114.
+        * It puts a NUL-terminated string (at most 0x100 bytes including the NUL) to SS:BP-0x114.
+        * It sets word [SS:BP-0x14] := 'CL'.
+        * It makes sure that SP <= BP-0x114.
+        * Something like this: `mov bp, sp ++ sub sp, 0x114 ++ mov word [bp-0x14], 'CL' ++ copy the NUL-terminated string to SS:SP`.
+      * An easy way to avoid sending a command-line: keep SS:BP == ??:0x7c00
+        (boot sector), SP is only a few bytes less than BP (i.e. stack grows
+        down from SS:0x7c00).
+    * !! What other registers to set (DS, SS, BP, SI)? !! Test.
+  * `stage2`: GRUB 0, GRUB 1, GRUB Legacy, GRUB 0.97.
+    * https://en.wikipedia.org/wiki/GNU_GRUB#Version_0_(GRUB_Legacy)
+    * !! What other registers to set (DS, SS, BP, SI)? !! Test.
+    * Load the file to 0x800:0. Set DL to the drive number. Jump to
+      0:0x8200. (The exact segment-offset split doesn't matter.)
+    * Source code for the entry point (0:0x8200) is in stage2/asm.S.
+    * Source for the (here unused) code at 0:0x8000 is in stage2/start.S.
+* Maybe it will boot this in the future:
+  * `drbio.sys`: EDR-DOS (Enhanced DR-DOS) >=7.01.07.
+    * This is very similar to the MS-DOS v6 load protocol.
+    * !! Is it enough to load 3 sectors?
+    * !! How do we pass the disk location of *drdos.sys*?
+    * Load the file to 0x70:0. (This is tricky, it can cause a disk read
+      error because of 64 KiB boundary crossing if the file is longer than
+      63488 bytes.) Set DL to the drive number. Set DS:BP (not SS:BP) to the
+      BPB, with .drive_number and .hidden_sector_count filled. For good
+      measure, set SS := DS. Jump to 0x70:0.
+  * `core.img`: GRUB 2.
+    * https://en.wikipedia.org/wiki/GNU_GRUB#Version_2_(GRUB_2)
+* !! Stop parsing the root directory at the first NUL byte. Also patch
+  other boot sectors.
+
+---
+
+FreeDOS drive C: assignment:
+
+* When booting from HDD, FreeDOS will read files (such as confg.sys) from
+  drive C:.
+* If InitKernelConfig.DLASortByDriveNo == 0 (default), C: will be the first
+  primary bootable partition on disk 0x80. (This is strange: config.sys will
+  be loaded from a disk different from where kernel.sys was loaded, if e.g.
+  boot disk == 0x81).
+* If InitKernelConfig.DLASortByDriveNo != 0 (non-default), C: will be the
+  first primary bootable partition on the boot disk (passed in register BL
+  from the boot sector boot code to kernel.sys).
+
+---
+
+FreeDOS 1.3 kernel.sys config:
+
+* https://github.com/FDOS/kernel/blob/5de2eb1aa01b0129b046cf06338453a233c6597b/kernel/kernel.asm#L60-L89
+* Defaults in FreeDOS 1.3 floppy edition (for 8086,
+  https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-FloppyEdition.zip)
+  kernel.sys 2021-03-24:
+  ```
+  config:  ; Starts at the beginning of the file.
+  .jmp: jmp strict short code2
+  .signature: db 'CONFIG'  ; constant.
+  .size: dw configend-configstart  ; 6.  Why so few bytes?
+  .configstart:
+  .DLASortByDriveNo: db 0  ; Sort disks by drive order.
+  .InitDiskShowDriveAssignment: db 1
+  .SkipConfigSeconds: db 2
+  .ForceLBA: db 0
+  .GlobalEnableLBAsupport: db 1
+  .BootHarddiskSeconds: db 0
+  .configend:
+  .unused: db 'nused', 8, 7, 6, 5, 4, 3, 2, 1
+  assert_fofs 0x1d
+  code2:
+  times 0x70-0x1d nop  ; Actually there are some code and data bytes here.
+  compressed_config:  ; UPX-compressed. Starts at file offset 0x70.
+  .literal_bitmask1: db 11111111b  ; 8 literal bytes follow.
+  .jmp: jmp short $+2+0x14
+  .signature: db 'CONFIG'  ; constant.
+  .literal_bitmask2: db 11111011b  ; 5 literal bytes, 1 backreference, 2 literal bytes follow.
+  .size: dw .configend-.configstart+COMPRESSION_OVERHEAD1  ; 0xc.  Why so few bytes?
+  .DLASortByDriveNo: db 0  ; Sort disks by drive order.
+  .InitDiskShowDriveAssignment: db 1
+  .SkipConfigSeconds: db 2
+  ;.ForceLBA: db ?
+  ;.GlobalEnableLBAsupport: db ?
+  ;.BootHarddiskSeconds: db ?
+  ;
+  db 2  ; !! Backreference byte.
+  .literal_bitmask3: db 01111101b  ; 1 backreference, 5 literal bytes, 1 backreference, 1 literal byte follow. ??
+  db 0  ; !! Backreference byte.
+  .Version_OemID: db 0xfd  ; OEM_ID
+  .Version_Major: db 2
+  ;.Version_Revision: dw 41  ; REVISION_SEQ
+  ;.Version_Release: dw 1  ; 0=release build, >0=svn#
+  ;.CheckDebugger: db 0  ; 0 = no check, 1 = check, 2 = assume present
+  db 41
+  db 0xdf
+  db 5
+  push ax  ; db 0x50
+  push bx  ; db 0x53
+  pushf  ; db 0x9c
+  mov ax, 0x????  ; db 0xb8, ??, ??
+  ; These below are not part of FreeDOS 1.3 kernel.sys config:
+  .Verbose: db 0  ; -1 = quiet, 0 = normal, 1 = verbose
+  ; bits 0-1: 01=GPT if found, 00=MBR if found, 11=Hybrid, GPT first then MBR, 10=Hybrid, MBR first then GPT
+  ; in hybrid mode, EE partitions ignored, drives assigned by GPT or MBR first based on hybrid type
+  ; bits 2-4: 001=mount ESP (usually FAT32) partition, 010=mount MS Basic partitions, 100=mount unknown partitions
+  ; 111=attempt to mount all paritions, 110=attempt to mount all but ESP partitions
+  ; bits 5-7: reserved, 0 else undefined behavior
+  ;.PartitionMode db 0x1f  ; This is not specified, it's beyond the 0xc config bytes.
+  ```
+
+----
+
+Improvements over the MS-DOS 6.22 boot sector code:
+;
+* MBR is also added (containing partition table, boot code and a copy of the FAT16 headers).
+* Provide FAT16 headers (BPB) in the MBR as well, for compatibility with
+  mtools(1) (`mdir -i hda.img`).
+* Autofill cyls (.sectors_per_track) and heads (.head_count) fields from
+  data returned by the BIOS in both the MBR and the FAT partition boot
+  sector.
+* Receive drive number (.drive_number) from the BIOS in both the MBR and
+  the FAT partition boot sector.
+* Code size optimizations without loss functionality.
+* Boot any of MS-DOS 4.01--6.22, Windows 95 (MS-DOS 7.0 and 7.1), Windows
+  98 (MS-DOS 7.1) patched Windows ME (MS-DOS 8.0), IBM PC DOS 4.01--7.1.
+* Allow io.sys and msdos.sys to be near the end of the 2 GiB partition
+  (i.e. work around the `div 63' limit).
+* Allow the directory entry of io.sys and msdos.sys be anywhere within the
+  root directory. (Previously io.sys had to be first, and msdos.sys had to
+  be second.)
+* Boot even if io.sys or msdos.sys is not contiguous on disk.
+  This is relevant only for cluster size 0x200 and 0x400, because for
+  >=0800 the first 3 sectors are already continuous, because they are in
+  the same cluster.
+* Write cyls (.sectors_per_track), heads (.head_count) and drive number
+  (.drive_number) values back to the boot sector BPB, in case DOS wants to
+  read it from there when initially mounting the filesystem.
+* Better cluster alignment (8 KiB) for faster host HDD access.
+* Better cylinder alignment for comaptibility with Mtools and QEMU.
+* Provide caching of last FAT sector.
+;
+!! Set .sectors_per_track to 1 in the MBR only, for better Mtools integration (no need for MTOOLS_SKIP_CHECK=1).
+!! Patch MS-DOS 4.01 sources for non-cluster-2 io.sys booting, and .fat_count=1: https://fabulous.systems/posts/2024/05/a-minor-update-ms-dos-4-1-is-here/
+!! This may be false: MS-DOS/v4.0/src/BIOS/MSLOAD.ASM: MSLOAD can handle maximum FAT area size of 64 KB: it can handle 2 * 64 KiB. !! Double check by moving io.sys to the end. Or just replace it with MS-DOS 5.00 msload after testing.
+!! Add fast boot for Windows 95 RTL (https://retrocomputing.stackexchange.com/q/31115) in msdos.sys.
+!! Implement msload.nasm (as free software), for MS-DOS 4.01: make it work for FAT12, support .new_dipt.
+!! MS-DOS 4.01 reports if there is a HDD >32 MiB: WARNING! SHARE should be loaded for large media.
+   > https://www.os2museum.com/wp/dos/dos-4-0/
+   SHARE was not strictly required for DOS operation, but was needed for
+   applications using old-style FCBs (File Control Blocks). On large
+   partitions, DOS could not use FCBs directly and FCBs had to be
+   translated to SFT (System File Table) operations. The FCB to SFT
+   translation logic was implemented in SHARE.EXE.
+!! Docs about IBM PC DOS 7.1 (free to download): https://liam-on-linux.livejournal.com/59703.html
+   It's based off the same core as the embedded DOS in Windows 95B (OSR2)
+   and Windows 98. It supports FAT32, including the ability to boot from
+   them. It supports LBA hard disks, meaning it can handle volumes of over
+   8GB. It fixes a lot of bugs in the DOS codebase.
+;
+FAT12, FAT16, FAT32 filesystem:
+;
+* On a PC, each floppy and HDD sector is 512 bytes.
+* layout:
+  * hidden sectors:
+    * HDD MBR (including partition table), missing for floppy
+    * HDD other partitions, missing for floppy
+  * reserved sectors: (must be at least 16 for FAT32 for the multisector boot code installed by Windows XP)
+    * boot sector: including FAT headers (superblock, BPB) and boot code
+    * FAT32 filesystem information sector
+    * FAT32 backup boot sector
+    * other sectors
+  * first file allocation table (FAT)
+  * second file allocation table (FAT): can be missing
+  * root directory: fixed size, 32 bytes per entry
+  * clusters: same size each (any of 512, 1024, 2048, 4096, 8192, 16384 or 32768 bytes)
+  * unused data
+* alignment:
+  * Everything is aligned to sector size, nothing is aligned to cluster size.
+  * Alignment to cluster size greatly improves performance of RAIDs and large-sector HDDs.
+  * Hidden sectors usually start at the beginning of the device, so they are aligned.
+  * To align reserved sectors to cluster size, align the partition start.
+  * To align the first file allocation table to cluster size, increase the number of reserved sectors.
+  * There is no way to align the second file allocation table to cluster size. Maybe by increasing the number of clusters beyond the device.
+  * There is no way to align the root directory to cluster size. Maybe by increasing the number of clusters beyond the device.
+  * To align the clusters to cluster size, increase the number of root directory entries.
+* number of clusters:
+  * This is incomplete, see the comments in bakefat.c instead.
+  * We take into Microsoft's EFI FAT32 specification (see below), Windows NT
+    4.0, mtools (https://github.com/Distrotech/mtools/blob/13058eb225d3e804c8c29a9930df0e414e75b18f/mformat.c#L222)
+    and Linux kernel 3.13 vfat.o.
+  * Microsoft's EFI FAT32 specification states that any FAT file system
+    with less than 4085 clusters is FAT12,
+    else any FAT file system with less than 65525 clusters is FAT16,
+    and otherwise it is FAT32 (up to 268435445 == 0xffffff5 clusters).
+  * FAT12: 1 .. 4078 (== 0xfee) clusters.
+  * FAT16: 4087 .. 65518 (== 0xffee) clusters.
+  * FAT32: 65525 .. 268435438 (== 0x0fffffee) clusters.
+* biggest HDD image with a single FAT16 filesystem:
+  * About 2 GiB == 2**31 bytes: 2**15 bytes per cluster, about 2**16 clusters.
+  * Still supported by MS-DOS.
+  * Geometry is compatible with QEMU 2.11.1.
+  * Compatible with mtools, even without MTOOLS_SKIP_CHECK=1: Total number of sectors must be a multiple of sectors per track.
+  * The y calculations above take into account the QEMU 2.11.1 bug that it reports 1 less cyls for logical disk geometry.
+  * Number of sectors per cluster: 64 (maximum for FAT).
+  * Number of clusters: 65518 (maximum for FAT16).
+  * Number of hidden sectors: 63 (must be divisble by secs, for MS-DOS).
+  * Number of reserved sectors: 57 (boot sector + 56, for the aligment of the clusters).
+  * Number of sectors per FAT: 2**16 * 2 / 2**9 == 2**8 == 256.
+  * Number of FATs: 1.
+  * Number of root directory entries: 128.
+  * Number of root directory sectors: 128 * 32 / 512 == 8.
+  * Number of sectors before the first cluster: 63+57+256+8 == 384 == 6*64.
+  * Total number of sectors including hidden sectors: 64*(6+65518) + (63-4) == 4193595 (+4 to round up to a multiple of secs==63, for MS-DOS and mtools).
+  * Logical disk geometry (as seen by MS-DOS with int 13h AH==2 and AH==8 in QEMU): cyls=521==z, heads=128, secs=63
+  * Physical disk geometry (as seen by int 13h AH==48h in QEMU): cyls=y, heads=16, secs=63; y*16*63 >= (z+1)*128*63; y >= (z+1)*128/16 == (521+1)*128/16; y == 4176.
+  * !! Try to force another in QEMU, with trans=1.
+  * Disk image size: 4176*16*63*512 == 2155216896 bytes.
+  * qemu-system-i386 says: `18675@1735137116.631602:hd_geometry_guess blk 0x5557df40d670 CHS 4176 16 63 trans 2`
+  * gdp.out (output of gdp.com, as hex): 00 bf 08 7f
+  * Logical disk geometry (as reported by int 13h AH==8): cyls=521, heads=128, secs=63
+  * Linux fdisk(1) `c`, `v` still reports: `Partition 1: does not end on cylinder boundary.`. MS-DOS still works. The partition table doesn't store the geometry (cyls, heads, secs).
+  * MS-DOS 6.22 boot sector code relies on the heads= (word at @0x1a) and secs= (word at @0x18) in the BPB; after booting, it ignores it
+  * ```
+    rm -f fat16.img && mkfs.vfat -a -C -D 0 -f 1 -F 16 -i abcd1234 -r 128 -R 57 -s 64 -S 512 -h 63 --invariant fat16.img 2096766
+    : Change number of heads to 128 (\x80\x00) at offset 26 in fat16.img.
+    dd if=fat16.img of=hda.img bs=512 count=58 seek=63 conv=notrunc,sparse
+    qemu-system-i386 -trace enable=hd_geometry_\* -fda t.img -drive file=hda.img,format=raw,id=hda,if=none -device ide-hd,drive=hda,cyls=4176,heads=16,secs=63 -boot a
+      dir c:
+      sys c:
+    qemu-system-i386 -trace enable=hd_geometry_\* -drive file=hda.img,format=raw,id=hda,if=none -device ide-hd,drive=hda,cyls=4176,heads=16,secs=63 -boot c
+    ```
+* !! MS-DOS 4.0 limitation: (msload.asm): MSLOAD can handle maximum FAT area size of 64 KB. (Is this true? Probably only msboot. Or maybe even not.)
+;
+Accessing (`dir c:`) with wrong .sectors_per_track, .head_count or .hidden_sector_count:
+;
+* FreeDOS 1.0..1.2: not supported.
+* FreeDOS 1.3: supported.
+* MS-DOS 6.22: supported.
+* !! Get more info.
+* !! Get info about booting.
+* !! Get separate info about .hidden_sector_count.
+;
+.fat_count == 1 support:
+;
+* MS-DOS <=6.22: not supported, not even `dir c:`.
+* IBM PC DOS 4.01..7.1: not supported, not even `dir c:`.
+* Windows 95 (MS-DOS 7.x), Windows 98 (MS-DOS 7.x), Windows ME (MS-DOS 8.0): supported.
+* FreeDOS 1.0..1.3: supported.
+* For some version of MS-DOS, there is a patch in this repo for HDDs, see
+  patchio*.nasm. (There is no patch for floppies.)
+* More info: https://retrocomputing.stackexchange.com/q/31080
+* !! Add a patch for MS-DOS 4.01 floppies, based on
+  https://retrocomputing.stackexchange.com/a/31082
+;
+Sector layout of the 2-FAT, 512-byte-sector, 512-byte-cluster FAT16 HDD image:
+;
+* !! Provide an option for 2048-byte (etc.) clusters.
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..319: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 320..575: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 576..583: root directory (128 entries) (aligned to 4 KiB)
+* 584..66101: clusters (0xffee == 65518 clusters) (aligned to 512 bytes) (first cluster has number 2)
+* 66102: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 1-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..319: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 320..575: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 576..583: root directory (128 entries) (aligned to 4 KiB)
+* 584..131619: clusters (0xffee == 65518 clusters) (aligned to 1 KiB) (first cluster has number 2)
+* 131620: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 2-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..319: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 320..575: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 576..583: root directory (128 entries) (aligned to 4 KiB)
+* 584..262655: clusters (0xffee == 65518 clusters) (aligned to 2 KiB) (first cluster has number 2)
+* 262656: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 4-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..319: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 320..575: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 576..583: root directory (128 entries) (aligned to 4 KiB)
+* 584..524727: clusters (0xffee == 65518 clusters) (aligned to 4 KiB) (first cluster has number 2)
+* 524728: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 8-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..71: unused, filled with NUL, for alignment of the rest
+* 72..327: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 328..583: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 584..591: root directory (128 entries) (aligned to 4 KiB)
+* 592..1048879: clusters (0xffee == 65518 clusters) (aligned to 8 KiB) (first cluster has number 2)
+* 1048880: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 16-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..87: unused, filled with NUL, for alignment of the rest
+* 88..343: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 344..599: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 600..608: root directory (128 entries) (aligned to 4 KiB)
+* 608..2097183: clusters (0xffee == 65518 clusters) (aligned to 16 KiB) (first cluster has number 2)
+* 2097184: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 2-FAT, 512-byte-sector, 32-KiB-cluster FAT16 HDD image:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..119: unused, filled with NUL, for alignment of the rest  !! make the root directory larger, just align to 8 KiB
+* 120..375: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 376..631: second FAT (aiigned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 632..639: root directory (128 entries) (aligned to 4 KiB)
+* 640..4193791: clusters (0xffee == 65518 clusters) (aligned to 32 KiB) (first cluster has number 2)
+* 4193792: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Sector layout of the 1-FAT, 512-byte-sector, 32-KiB-cluster FAT16 HDD image, not compatible with MS-DOS 6.22:
+;
+* 0: MBR, partition table, MBR boot code, early FAT16 headers
+* 1..62: unused, filled with NUL
+* 63: boot sector, FAT16 headers, boot sector boot code
+* 64..119: unused, filled with NUL, for alignment of the rest
+* 120..375: first FAT (aligned to 4 KiB) (starts with dw -8, -1; then next of the first cluster)
+* 376..383: root directory (128 entries) (aligned to 4 KiB)
+* 384..4193535: clusters (0xffee == 65518 clusters) (aligned to 32 KiB) (first cluster has number 2)
+* 4193536: padding for CHS geometry (typically 255*63 sectors), filled with NUL
+;
+Directory entry for hi.txt, pointing to the last cluster:
+;
+   db 'HI      TXT'  ; File name and extension, space-padded.
+   db 0x20, 0x00, 0x00, 0x8a, 0x5d
+   db 0x21, 0x5a, 0x21, 0x5a, 0x00, 0x00, 0x8a, 0x5d, 0x21, 0x5a
+   dw 0xffef  ; Start cluster index. (first cluster would have number 2)
+   dd 0xf  ; File size in bytes.
+;
+Constraints:
+;
+* Cluster count is the count of on-disk clusters, which excludes unstored
+  clusters 0 and 1.
+* FAT16 cluster count must be at least 0x1000-2, to prevent DOS from
+  recognizing the filesystem as FAT12. And at most 0xffee.
+* FAT32 cluster count must be at least 0x10000-2, to prevent DOS from
+  recognizing the filesystem as FAT16. And at most 0xffffee.
+* .sectors_per_fat must be a multiple of 8, for alignment. Exception:
+  16M-8K with 2 FATs.
+* Maximum cluster size is 32 KiB (32K) for most DOS systems (including
+  Windows 95). Windows NT, Windows 98 and Windows ME support 64 KiB.
+  For simplicity and compatibility, we support only up to 32 KiB.
+* We limit filesystem size to <~2TiB, because that's the per-partition
+  maximum size supported by the MBR partition table.
+* !! What is the largest B...-512 supported by mkfs.vfat?
+;
+With DOS-all compatibility:
+;
+* 2M: 2M-512
+* 4M: 4M-1K
+* 8M: 8M-2K
+* 16M: 16M-4K
+* 32M: 32M-4K
+* 64M: 64M-4K
+* 128M: 128M-4K
+* 256M: 256M-4K
+* 512M: 512M-8K
+* 1G: 1G-16K
+* 2G: 2G-32K
+;
+DOS-patched compatibility is like DOS-all compatibility, but with 1FAT.
+;
+Windows compatibility (all 1FAT):
+;
+* 2M: 2M-512
+* 4M: 4M-1K
+* 8M: 8M-2K
+* 16M: 16M-4K
+* 32M: 32M-4K
+* 64M: 64M-4K
+* 128M: 128M-4K
+* 256M: 256M-4K
+* 512M: B512M-4K
+* 1G: B1G-4K
+* 2G: B2G-4K
+* 4G: B4G-4K
+* 16G: B16G-4K
+* 32G: B32G-4K
+* 64G: B64G-8K
+* 128G: B128G-16K
+* 256G: B256G-32K
+* 512G: B512G-32K
+* 1T: B1T-32K
+* 2T: B2T-32K
+;
+To-be supported filesystem size presets:
+;
+                       2M-512  4M-512  4M-1K   8M-512  8M-1K   8M-2K
+  ---------------------------------------------------------------------
+  filesystem type      FAT16   FAT16   FAT16   FAT16   FAT16   FAT16
+  cluster count+2      0x1000  0x2000  0x1000  0x4000  0x2000  0x1000
+  cluster size          0x200   0x200   0x400   0x200   0x400   0x800
+  sectors per cluster       1       1       2       1       2       4
+  sectors per FAT        0x10    0x20    0x10    0x40    0x20      10
+;
+                       16M-512  16M-1K  16M-2K  16M-4K  16M-8K
+  ------------------------------------------------------------
+  filesystem type      FAT16    FAT16   FAT16   FAT16   FAT16
+  cluster count+2      0x8000   0x4000  0x2000  0x1000  0x1000
+  cluster size          0x200    0x400   0x800  0x1000  0x2000
+  sectors per cluster       1        2       4       8    0x10
+  sectors per FAT        0x80     0x20    0x10       8      !4
+;
+                       32M-512  32M-1K  32M-2K  32M-4K  32M-8K
+  ------------------------------------------------------------
+  filesystem type      FAT16    FAT16   FAT16   FAT16   FAT16
+  cluster count+2      0xfff0   0x8000  0x4000  0x2000  0x1000
+  cluster size          0x200    0x400   0x800  0x1000  0x2000
+  sectors per cluster       1        2       4       8    0x10
+  sectors per FAT       0x100     0x80    0x20    0x10       8
+;
+                       64M-1K  64M-2K  64M-4K  64M-8K  64M-16K
+  ------------------------------------------------------------
+  filesystem type      FAT16   FAT16   FAT16   FAT16   FAT16
+  cluster count+2      0xfff0  0x8000  0x4000  0x2000   0x1000
+  cluster size          0x400   0x800  0x1000  0x2000   0x2000
+  sectors per cluster       2       4       8    0x10     0x20
+  sectors per FAT       0x100    0x80    0x20    0x10        8
+;
+                       128M-2K  128M-4K  128M-8K  128M-16K  128M-32K
+  ------------------------------------------------------------------
+  filesystem type      FAT16    FAT16    FAT16    FAT16     FAT16
+  cluster count+2       0xfff0   0x8000   0x4000   0x2000     0x1000
+  cluster size           0x800   0x1000   0x2000   0x4000     0x8000
+  sectors per cluster        4       8      0x10     0x20       0x40
+  sectors per FAT        0x100     0x80     0x20     0x10          8
+;
+                       256M-4K  256M-8K  256M-16K  256M-32K
+  ---------------------------------------------------------
+  filesystem type      FAT16    FAT16    FAT16     FAT16
+  cluster count+2       0xfff0   0x8000    0x4000    0x2000
+  cluster size          0x1000   0x2000    0x4000    0x8000
+  sectors per cluster        8     0x10      0x20      0x40
+  sectors per FAT        0x100     0x80      0x20      0x10
+;
+                       512M-8K  512M-16K  512M-32K  1G-16K   1G-32K   2G-32K
+  --------------------------------------------------------------------------
+  filesystem type      FAT16    FAT16     FAT16     FAT16    FAT16    FAT16
+  cluster count+2       0xfff0    0x8000    0x4000  0xfff0   0x8000   0xfff0
+  cluster size          0x2000    0x4000    0x8000  0x4000   0x8000   0x8000
+  sectors per cluster     0x10      0x20      0x40    0x20     0x40     0x40
+  sectors per FAT        0x100      0x80      0x20   0x100     0x80    0x100
+;
+                       B32M-512  B64M-512  B64M-1K  B128M-512  B128M-1K  B128M-2K
+  -------------------------------------------------------------------------------
+  filesystem type      FAT32     FAT32     FAT32    FAT32      FAT32     FAT32
+  cluster count+2       0x10000   0x20000  0x10000    0x40000   0x20000   0x10000
+  cluster size            0x200     0x200    0x400      0x200     0x400     0x800
+  sectors per cluster         1         1        2          1         2         4
+  sectors per FAT         0x200     0x400    0x200      0x800     0x400     0x200
+;
+                       B256M-512  B256M-1K  B256M-2K  B256M-4K
+  ------------------------------------------------------------
+  filesystem type      FAT32      FAT32     FAT32     FAT32
+  cluster count+2        0x80000   0x40000   0x20000   0x10000
+  cluster size             0x200     0x400     0x800    0x1000
+  sectors per cluster          1         2         4         8
+  sectors per FAT         0x1000     0x800     0x400     0x200
+;
+                       B512M-512  B512M-1K  B512M-2K  B512M-4K  B512M-8K
+  ----------------------------------------------------------------------
+  filesystem type      FAT32      FAT32     FAT32     FAT32     FAT32
+  cluster count+2       0x100000   0x80000   0x40000   0x20000   0x10000
+  cluster size             0x200     0x400     0x800    0x1000    0x2000
+  sectors per cluster          1         2         4         8      0x10
+  sectors per FAT         0x2000    0x1000     0x800     0x400     0x200
+;
+                       B1G-512   B1G-1K    B1G-2K   B1G-4K   B1G-8K   B1G-16K
+  ---------------------------------------------------------------------------
+  filesystem type      FAT32     FAT32     FAT32    FAT32    FAT32    FAT32
+  cluster count+2      0x200000  0x100000  0x80000  0x40000  0x20000  0x10000
+  cluster size            0x200     0x400    0x800   0x1000   0x2000   0x4000
+  sectors per cluster         1         2        4        8     0x10     0x20
+  sectors per FAT        0x4000    0x2000   0x1000    0x800    0x400    0x200
+;
+                       B2G-512   B2G-1K    B2G-2K    B2G-4K   B2G-8K   B2G-16K  B2G-32K
+  -------------------------------------------------------------------------------------
+  filesystem type      FAT32     FAT32     FAT32     FAT32    FAT32    FAT32    FAT32
+  cluster count+2      0x400000  0x200000  0x100000  0x80000  0x40000  0x20000  0x10000
+  cluster size            0x200     0x400     0x800   0x1000   0x2000   0x4000   0x8000
+  sectors per cluster         1         2         4        8     0x10     0x20     0x40
+  sectors per FAT        0x8000    0x4000    0x2000   0x1000    0x800    0x400    0x200
+;
+                       B4G-512   B4G-1K    B4G-2K    B4G-4K    B4G-8K   B4G-16K  B4G-32K
+  --------------------------------------------------------------------------------------
+  filesystem type      FAT32     FAT32     FAT32     FAT32     FAT32    FAT32    FAT32
+  cluster count+2      0x800000  0x400000  0x200000  0x100000  0x80000  0x40000  0x20000
+  cluster size            0x200     0x400     0x800    0x1000   0x2000   0x4000   0x8000
+  sectors per cluster         1         2         4         8     0x10     0x20     0x40
+  sectors per FAT       0x10000    0x8000    0x4000    0x2000   0x1000    0x800    0x400
+;
+                       B8G-512    B8G-1K    B8G-2K    B8G-4K    B8G-8K    B8G-16K  B8G-32K
+  ----------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32     FAT32     FAT32     FAT32     FAT32    FAT32
+  cluster count+2      0x1000000  0x800000  0x400000  0x200000  0x100000  0x80000  0x40000
+  cluster size             0x200     0x400     0x800    0x1000    0x2000   0x4000   0x8000
+  sectors per cluster          1         2         4         8      0x10     0x20     0x40
+  sectors per FAT        0x20000   0x10000    0x8000    0x4000    0x2000   0x1000    0x800
+;
+                       B16G-512   B16G-1K    B16G-2K   B16G-4K   B16G-8K   B16G-16K  B16G-32K
+  -------------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32     FAT32     FAT32     FAT32     FAT32
+  cluster count+2      0x2000000  0x1000000  0x800000  0x400000  0x200000  0x100000   0x80000
+  cluster size             0x200      0x400     0x800    0x1000    0x2000    0x4000    0x8000
+  sectors per cluster          1          2         4         8      0x10      0x20      0x40
+  sectors per FAT        0x40000    0x20000   0x10000    0x8000    0x4000    0x2000    0x1000
+;
+                       B32G-512   B32G-1K    B32G-2K    B32G-4K   B32G-8K   B32G-16K  B32G-32K
+  --------------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32     FAT32     FAT32     FAT32
+  cluster count+2      0x4000000  0x2000000  0x1000000  0x800000  0x400000  0x200000  0x100000
+  cluster size             0x200      0x400      0x800    0x1000    0x2000    0x4000    0x8000
+  sectors per cluster          1          2          4         8      0x10      0x20      0x40
+  sectors per FAT        0x80000    0x40000    0x20000   0x10000    0x8000    0x4000    0x2000
+;
+                       B64G-512   B64G-1K    B64G-2K    B64G-4K    B64G-8K   B64G-16K  B64G-32K
+  ---------------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32      FAT32     FAT32     FAT32
+  cluster count+2      0x8000000  0x4000000  0x2000000  0x1000000  0x800000  0x400000  0x200000
+  cluster size             0x200      0x400      0x800     0x1000    0x2000    0x4000    0x8000
+  sectors per cluster          1          2          4          8      0x10      0x20      0x40
+  sectors per FAT       0x100000    0x80000    0x40000    0x20000   0x10000    0x8000    0x4000
+;
+                       B128G-512  B128G-1K   B128G-2K   B128G-4K   B128G-8K   B128G-16K  B128G-32K
+  ------------------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32      FAT32      FAT32      FAT32
+  cluster count+2      0xffffff0  0x8000000  0x4000000  0x2000000  0x1000000   0x800000   0x400000
+  cluster size             0x200      0x400      0x800     0x1000     0x2000     0x4000     0x8000
+  sectors per cluster          1          2          4          8       0x10       0x20       0x40
+  sectors per FAT       0x200000   0x100000    0x80000    0x40000    0x20000    0x10000     0x8000
+;
+                       B256G-1K   B256G-2K   B256G-4K   B256G-8K   B256G-16K  B256G-32K
+  -------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32      FAT32      FAT32
+  cluster count+2      0xffffff0  0x8000000  0x4000000  0x2000000   0x100000   0x800000
+  cluster size             0x400      0x800     0x1000     0x2000     0x4000     0x8000
+  sectors per cluster          2          4          8       0x10       0x20       0x40
+  sectors per FAT       0x200000   0x100000    0x80000    0x40000    0x20000    0x10000
+;
+                       B512G-2K   B512G-4K   B512G-8K   B512G-16K  B512G-32K
+  --------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32      FAT32
+  cluster count+2      0xffffff0  0x8000000  0x4000000   0x200000  0x1000000
+  cluster size             0x800     0x1000     0x2000     0x4000     0x8000
+  sectors per cluster          4          8       0x10       0x20       0x40
+  sectors per FAT       0x200000   0x100000    0x80000    0x40000    0x20000
+;
+                       B1T-4K     B1T-8K     B1T-16K    B1T-32K    B2T-8K     B2T-16K    B2T-32K
+  ------------------------------------------------------------------------------------------------
+  filesystem type      FAT32      FAT32      FAT32      FAT32      FAT32      FAT32      FAT32
+  cluster count+2      0xffffff0  0x8000000  0x4000000  0x2000000  0xffffe01  0x8000000  0x4000000
+  cluster size            0x1000     0x2000     0x4000     0x8000     0x2000     0x4000     0x8000
+  sectors per cluster          8       0x10       0x20       0x40       0x10       0x20       0x40
+  sectors per FAT       0x200000   0x100000    0x80000    0x40000   0x200000   0x100000    0x80000
+
+---
