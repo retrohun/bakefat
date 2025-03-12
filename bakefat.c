@@ -1183,7 +1183,7 @@ int main(int argc, char **argv) {
     adjust_hdd_geometry(&fp, fat_clusters_sec_ofs);
   }
 #  if DEBUG
-    msg_printf("info: sector_count=%lu=0x%lx geometry_sector_count=%lu=0x%lx CHS=%lu:%u:%u\n", (unsigned long)fp.fcp.sector_count, (unsigned long)fp.fcp.sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.cylinder_count, (unsigned)fp.fcp.head_count, (unsigned)fp.fcp.sectors_per_track);
+    msg_printf("info: cluster_count=0x%lx sector_count=%lu=0x%lx geometry_sector_count=%lu=0x%lx CHS=%lu:%u:%u\n", (unsigned long)fp.fcp.cluster_count, (unsigned long)fp.fcp.sector_count, (unsigned long)fp.fcp.sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.geometry_sector_count, (unsigned long)fp.cylinder_count, (unsigned)fp.fcp.head_count, (unsigned)fp.fcp.sectors_per_track);
 #  endif
   if ((sfd = open(sfn, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666)) < 0) {
     msg_printf("fatal: error opening output file: %s\n", sfn);
