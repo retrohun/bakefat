@@ -358,7 +358,7 @@ struct fat_params {
   ub default_fat_count;
   ub fat_count;  /* 0 (unspecified), 1 or 2. */
   ub fat_fstype;  /* 0 (unspecified), 12, 16 or 32. */
-  ub vhd_mode;  /* 0 (unspecified), VHD_NOVHD == 1 (no VHD footer), VHD_NVHD == 2 (add VHD footer). */
+  ub vhd_mode;  /* 0 (unspecified), VHD_NOVHD == 1 (no VHD footer), VHD_FIXED == 2 (add fixed-size VHD footer). */
 };
 
 struct fat12_preset {
@@ -949,12 +949,12 @@ int main(int argc, char **argv) {
     } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
       if (fp.fat_count && fp.fat_count != 2) goto error_multiple_fat_count;
       fp.fat_count = 2;
-    } else if (strcasecmp(flag, "NOVHD")) {
+    } else if (strcasecmp(flag, "NOVHD") == 0) {
       if (fp.vhd_mode && fp.vhd_mode != VHD_NOVHD) { error_multiple_vhd_mode:
-        bad_usage0("multiple FAT FAT counts specified");
+        bad_usage0("multiple VHD values specified");
       }
       fp.vhd_mode = VHD_NOVHD;
-    } else if (strcasecmp(flag, "VHD")) {
+    } else if (strcasecmp(flag, "VHD") == 0) {
       if (fp.vhd_mode && fp.vhd_mode != VHD_FIXED) goto error_multiple_vhd_mode;
       fp.vhd_mode = VHD_FIXED;
     } else {
