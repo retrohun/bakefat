@@ -59,7 +59,7 @@
 ;   !! TODO(pts): Convert FreeBSD errno values to Linux? At least a few.
 ; * On Win32, the number of files opened at the same time is limited at
 ;   compile time (by default to 32).
-; * No locale support: isalpha(3), tolower(3), strncasecmp(3) etc. are
+; * No locale support: isalpha(3), tolower(3), strcasecmp(3) etc. are
 ;   ASCII-only (equivalent of LC_ALL=C).
 ; * No wide character support, only the 8-bit string functions are provided.
 ; * Code in the libc is optimized for size, and the default C compiler
@@ -514,6 +514,9 @@ section _TEXT
 %endif
 %ifdef __NEED____M_is_not_winnt
   %define __NEED__GetVersion@0
+%endif
+%ifdef __NEED_strncasecmp_
+  %define __NEED_strnasecmp_
 %endif
 
 ; TODO(pts): Add more if needed.
@@ -1454,13 +1457,14 @@ section _TEXT
 %endif
 
 %ifdef __NEED_strcasecmp_
-  global strcasecmp_
-  strcasecmp_:  ; int __watcall strcasecmp(const char *l, const char *r);
+  %ifndef __NEED_strncasecmp_
+    global strcasecmp_
+    strcasecmp_:  ; int __watcall strcasecmp(const char *l, const char *r);
 		push ecx  ; Save.
 		push esi  ; Save.
 		push edi  ; Save.
 		xchg esi, eax  ; ESI := start of string l; EAX := junk.
-		xchg edi, edx  ; EDI := start of string r; EDX := junk.
+		mov edi, edx  ; EDI := start of string r.
 		; ESI: Start of string l. Will be ruined.
 		; EDI: Start of string r. Will be ruined.
 		; ECX: Scratch. Will be ruined.
@@ -1468,14 +1472,14 @@ section _TEXT
 		; EAX: Scratch. The result is returned here.
 		xor eax, eax
 		xor ecx, ecx
-  .again:	lodsb
+    .again:	lodsb
 		mov dh, al
 		sub dh, 'A'
 		cmp dh, 'Z'-'A'
 		mov dl, al
 		ja short .2a
 		or al, 0x20
-  .2a:		movzx eax, al
+    .2a:	movzx eax, al
 		mov cl, [edi]
 		inc edi
 		mov dh, cl
@@ -1484,7 +1488,61 @@ section _TEXT
 		mov dh, cl
 		ja short .2b
 		or cl, 0x20
-  .2b:		sub eax, ecx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
+    .2b:	sub eax, ecx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
+		jnz short .return
+		test dh, dh
+		jz short .return
+		test dl, dl
+		jnz short .again
+    .return:	pop edi  ; Restore.
+		pop esi  ; Restore.
+		pop ecx  ; Restore.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_strncasecmp_
+  global strcasecmp_
+  strcasecmp_:  ; int __watcall strcasecmp_(const char *l, const char *r);
+		push ebx  ; Save.
+		or ebx, byte -1  ; EBX := -1. Sets the n argument to -1 (infinity) of strncasecmp_ below.
+		db 0x3c  ; Harmless `cmp al, ...'. Fall through to strncasecmp_, skipping the `push ebx'.
+  global strncasecmp_
+  strncasecmp_:  ; int __watcall strncasecmp(const char *l, const char *r, size_t n);
+		push ebx  ; Save. May be skipped above.
+		push ecx  ; Save.
+		push esi  ; Save.
+		push edi  ; Save.
+		xchg esi, eax  ; ESI := start of string l; EAX := junk.
+		mov edi, edx  ; EDI := start of string r.
+		mov ecx, ebx  ; ECX := n.
+		; ESI: Start of string l. Will be ruined.
+		; EDI: Start of string r. Will be ruined.
+		; ECX: n (maximum number of bytes to scan). Will be ruined.
+		; EBX: Scratch. Will be ruined.
+		; EDX: Scratch. Will be ruined.
+		; EAX: Scratch. The result is returned here.
+		xor eax, eax
+		xor ebx, ebx
+  .again:	jecxz .return
+		dec ecx
+		lodsb
+		mov dh, al
+		sub dh, 'A'
+		cmp dh, 'Z'-'A'
+		mov dl, al
+		ja short .2a
+		or al, 0x20
+  .2a:		movzx eax, al
+		mov bl, [edi]
+		inc edi
+		mov dh, bl
+		sub dh, 'A'
+		cmp dh, 'Z'-'A'
+		mov dh, bl
+		ja short .2b
+		or bl, 0x20
+  .2b:		sub eax, ebx  ; EAX := tolower(*(unsigned char*)l) - tolower(*(unsigned char*)r), zero-extended.
 		jnz short .return
 		test dh, dh
 		jz short .return
@@ -1493,6 +1551,7 @@ section _TEXT
   .return:	pop edi  ; Restore.
 		pop esi  ; Restore.
 		pop ecx  ; Restore.
+		pop ebx  ; Restore.
 		ret
 %endif
 
