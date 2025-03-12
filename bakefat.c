@@ -1178,7 +1178,12 @@ int main(int argc, char **argv) {
     fp.fcp.sectors_per_fat = fp.fat_fstype == 32 ? (fp.fcp.cluster_count + (2U + 0x7fU)) >> 7U : /* fat16: */ (fp.fcp.cluster_count + (2U + 0xffU)) >> 8U;
     fat_clusters_sec_ofs = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) + (fp.fcp.rootdir_entry_count >> 4U);
     fat_clusters_sec_ofs += align_fat(&fp, fat_clusters_sec_ofs);
+   recalc_sector_count:
     fp.fcp.sector_count = fat_clusters_sec_ofs + (fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster);
+    if (fp.fat_fstype == 16 && log2_size == 25 && fp.fcp.log2_sectors_per_cluster == 2 && fp.fcp.sector_count >> 16) {  /* Use at most 0xffff sectors, for compatibility with DOS 3.30. 4.01 supports much more, reaching 2 GiB FAT16. */
+      fp.fcp.cluster_count -= (fp.fcp.sector_count - 0xffffU - 1U + ((ud)1 << 2U)) >> 2U;
+      goto recalc_sector_count;
+    }
 #    if DEBUG
       if (fp.fcp.cluster_count > (0xffffffffU >> fp.fcp.log2_sectors_per_cluster) ||
           fp.fcp.sector_count <= fat_clusters_sec_ofs ||
