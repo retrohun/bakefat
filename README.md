@@ -312,13 +312,22 @@ Here is how to create floppy images using NASM only:
 
 Each mention of DOS below means both MS-DOS and IBM PC DOS.
 
-Specify thes command-line flags to ensure compatibility:
+If the right command-line flags are specified, disk images created by
+bakefat are compatible with MS-DOS 3.30--8.0, Windows 95--98--ME (== MS-DOS
+7.0--8.0), IBM PC DOS 3.30--7.1 and Windows NT 3.1--4.0, Windows 2000--XP--,
+and they are also bootable by these systems. (Windows NT--2000--XP booting
+is not implemented yet.)
 
-* If the right command-line flags are specified,
-  disk images created by bakefat are compatible with MS-DOS 3.30--8.0,
-  Windows 95--98--ME (== MS-DOS 7.0--8.0), IBM PC DOS 3.30--7.1 and Windows
-  NT 3.1--4.0, Windows 2000--XP--, and they are also bootable by these
-  systems. (Windows NT--2000--XP booting is not implemented yet.)
+For simplicity, specify one or more of the compatibility flags: *DOS3 DOS3.3
+DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 DOS8*. These will make bakefat select
+defaults for the specified operating system, and also check that the final
+filesystem parameters (chosen or configured) are compatible with that
+system.
+
+Command-line flag details for compatibility:
+
+* Please note that by specifying the operanting system compatibility flags
+  (e.g. *DOS3*) above, you don't have to pay attention to the details below.
 * For DOS 3.30--4.01 floppy compatibility, don't use size *2880K* (use any
   smaller sizes instead, such as *1440K*), which was introduced in DOS 5.00.
 * For DOS 3.30 hard disk compatibility, specify command-line flags *32M 2K
