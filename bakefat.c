@@ -1071,7 +1071,10 @@ int main(int argc, char **argv) {
       fp.fcp.sectors_per_fat = 0;
       do {
         old_sectors_per_fat = fp.fcp.sectors_per_fat;
-        fp.fcp.cluster_count = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count - ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) - (fp.fcp.rootdir_entry_count >> 4)) >> fp.fcp.log2_sectors_per_cluster;
+        u = fp.hidden_sector_count + fp.reserved_sector_count + ((ud)fp.fcp.sectors_per_fat << (fp.fat_count - 1U)) + (fp.fcp.rootdir_entry_count >> 4);
+        if (fp.fcp.sector_count <= u) goto fatal_no_clusters;
+        fp.fcp.cluster_count = (fp.fcp.sector_count - u) >> fp.fcp.log2_sectors_per_cluster;
+        if (fp.fcp.cluster_count == 0) goto fatal_no_clusters;
         if ((sd)fp.fcp.cluster_count <= 0) bad_usage0("FAT12 filesystem too small, no space for clusters");
         fp.fcp.sectors_per_fat = ((((fp.fcp.cluster_count + 2) * 3 + 1) >> 1) + 0x1ff) >> 9;  /* FAT12. */
       } while (fp.fcp.sectors_per_fat != old_sectors_per_fat);  /* Repeat until a fixed point is found for (fp.fcp.cluster_count, fp.fcp.sectors_per_fat). */
@@ -1147,6 +1150,7 @@ int main(int argc, char **argv) {
       if (log2_size == 41) {  /* Avoid overflows below, make sure that fp.geometry_sector_count fits to ud (32-bit unsigned). */
         fp.fcp.sector_count = (fp.vhd_mode >= VHD_FIXED ? VHD_MAX_SECTORS : 0xffffffffU) / (255U * 63U) * (255U * 63U);  /* An upper limit. */
        limit_fat32_by_sector_count:
+        if (fp.fcp.sector_count <= fp.hidden_sector_count + fp.reserved_sector_count) goto fatal_no_clusters;
         /* !! TODO(pts): Make hi lower by doing this without ud overflow: (...) * 512U / ((1U << fp.fcp.log2_sectors_per_cluster) + (2U << fp.fat_count)). */
         hi = (fp.fcp.sector_count - fp.hidden_sector_count - fp.reserved_sector_count) >> fp.fcp.log2_sectors_per_cluster;  /* An upper limit on fp.fcp.cluster_count. */
         lo = hi - ((hi + (2U + 0x7fU)) >> 7U << (fp.fat_count - 1U));  /* A lower limit on fp.fcp.cluster_count. */
@@ -1158,7 +1162,10 @@ int main(int argc, char **argv) {
             hi = mid;
           }
         }
-        fp.fcp.cluster_count = lo;
+        if ((fp.fcp.cluster_count = lo) == 0) { fatal_no_clusters:
+          /* This can happen e.g. if a very large fp.fcp.rootdir_entry_count or fp.reserved_sector_count was specified, such as `160K RSC=314'. */
+          fatal0("FAT filesystem too small, no space for even a single cluster");
+        }
       } else if (fp.fcp.cluster_count == 0xffffffeU) {
         fp.fcp.cluster_count -= 9U;  /* Maximum 0xffffff5 clusters on a FAT32 filesystem. */
       } else if (log2_size == 37 && fp.vhd_mode >= VHD_FIXED) {
