@@ -363,6 +363,7 @@ Long list of limitations (may still be incomplete):
 * Windows NT <=4.0 don't support FAT32, Windows 2000 (and later derivates of Windows NT) does. See [this forum topic](https://www.betaarchive.com/forum/viewtopic.php?t=44400) for adding FAT32 support to Windows NT 4.0, even for booting.
 * DOS <7.1 (including Windows 95 RTM and IBM PC DOS 7.0) doesn't support FAT count 1 (single FAT), DOS >=7.1 (including Windows 95 OSR2 and IBM PC DOS 7.1) does.
 * DOS <5.0 doesn't support reserved sector count larger than 1, DOS >=5.00 does.
+* Windows XP setup (but not exection) needs reserved sector count larger than 8 on FAT32, because it puts additional boot code in sector 8.
 * DOS <4.00 deesn't support >0x10000 sectors (hidden sector count + filesystem sector count), DOS >=4.00 does.
 * DOS 3.30 requires for FAT16 that the cluster size is 2048 bytes. DOS >=4.00 doesn't have this requirement.
 * DOS 3.30 requires for HDD that the number of root directory entries is 512 for booting from this filesystem. DOS 3.30 after booting doesn't have this requirement. DOS >=4.00 doesn't have this requirement.

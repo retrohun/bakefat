@@ -6,7 +6,6 @@
  * Compile with GCC for Unix: gcc -ansi -pedantic -W -Wall -Wno-overlength-strings -Werror -s -O2 -o bakefat bakefat.c
  * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
  *
- * !! Add compatibility flag (and documentation) for reserved sector count.
  * !! Fix last-sector-read bug.
  * !! doc: Check wheter MS-DOS 8.0 needs the first 4 sectors of io.sys to be contiguous.
  * !! doc: Can VirtualBox open with .img, without VBOX_E_OBJECT_NOT_FOUND? Or just .vhd extension?
