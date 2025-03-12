@@ -893,6 +893,7 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "Filesystem type flags: FAT12 FAT16 FAT32\n"
              "FAT count flags: 1FAT 2FATS FC=<number>\n"
              "Root directory entry count: RDEC=<number>\n"
+             "Reserved sector count: RSC=<number>\n"
              "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
@@ -1003,6 +1004,13 @@ int main(int argc, char **argv) {
         bad_usage0("multiple root directory entry counts specified");
       }
       fp.fcp.rootdir_entry_count = u;
+    } else if (strncasecmp(flag, "RSC=", 4) == 0) {
+      if (parse_ud(flag + 4, &u) != PARSEINT_OK) goto error_invalid_integer;
+      if (u - 1U > 0xffffU - 1U) bad_usage0("reserved sector count must be between 1 and 65535");
+      if (fp.reserved_sector_count && fp.reserved_sector_count != u) {
+        bad_usage0("multiple reserved sector counts specified");
+      }
+      fp.reserved_sector_count = u;
     } else if (strncasecmp(flag, "FC=", 3) == 0) {
       if (parse_ud(flag + 3, &u) != PARSEINT_OK) { error_invalid_integer:
         bad_usage1("invalid integer in flag", flag);

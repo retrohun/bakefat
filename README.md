@@ -328,10 +328,16 @@ Specify thes command-line flags to ensure compatibility:
   specifying size *2G* or smaller, bakefat will use *FAT16* then.
 * Also for DOS 3.30--7.0 (and Windows 95 A == Windows 95 RTM) hard disk
   compatibility, don't specify *1FAT*. bakefat uses *2FAT* by default.
-* After creating the filesystem, to make it bootable, copy the kernel file
-  *io.sys* (or *msbio.com*) first, before setting the volume label or
-  creating any file or directory. The order of the subsequent files and
-  directories doesn't matter.
+* For DOS 3.30--4.01 compatibility, don't specify *RSC=* different from 1.
+  bakefat uses *RSC=1* by default.
+* For DOS 3.30--8.0 compatibility, after creating the filesystem, to make it
+  bootable, copy the kernel file io.sys* (or *msbio.com*) first, before
+  setting the volume label or creating any file or directory. That's because
+  DOS 3.30--4.01 expects a contiguous *io.sys*, starting at the earliest
+  cluster, MS-DOS 3.30--6.22 and IBM PC DOS 3.30--7.1 expect the first 3
+  sectors of *io.sys* (or *ibmbio.com*) to be contiguous, and MS-DOS
+  7.0--8.0 expect the first 4 sectors of *io.sys* to be contiguous. The
+  order of the subsequent files and directories doesn't matter.
 
 Most of the limitations below apply to DOS, Windows, ROM BIOS and MBR
 partitioning.
@@ -345,7 +351,8 @@ Long list of limitations (may still be incomplete):
 * All FAT32 filesystems created by bakefat on HDD work on DOS >=7.1, Windows 95 OSR2, Windows 98--ME, Windows 2000 (and later derivatives of Windows NT), and they are also able to boot from this filesystem.
 * DOS <7.1 and Windows 95 before OSR2 (such as RTM and OEM) don't support FAT32, DOS >=7.1 does.
 * Windows NT <=4.0 don't support FAT32, Windows 2000 (and later derivates of Windows NT) does. See [this forum topic](https://www.betaarchive.com/forum/viewtopic.php?t=44400) for adding FAT32 support to Windows NT 4.0, even for booting.
-* DOS <7.1 (including Windows 95 RTM and IBM PC DOS 7.0) doesn't support FAT count 1, DOS >=7.1 (including Windows 95 OSR2 and IBM PC DOS 7.1) does.
+* DOS <7.1 (including Windows 95 RTM and IBM PC DOS 7.0) doesn't support FAT count 1 (single FAT), DOS >=7.1 (including Windows 95 OSR2 and IBM PC DOS 7.1) does.
+* DOS <5.0 doesn't support reserved sector count larger than 1, DOS >=5.00 does.
 * DOS <4.00 deesn't support >0x10000 sectors (hidden sector count + filesystem sector count), DOS >=4.00 does.
 * DOS 3.30 requires for FAT16 that the cluster size is 2048 bytes. DOS >=4.00 doesn't have this requirement.
 * DOS 3.30 requires for HDD that the number of root directory entries is 512 for booting from this filesystem. DOS 3.30 after booting doesn't have this requirement. DOS >=4.00 doesn't have this requirement.
