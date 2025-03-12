@@ -568,7 +568,8 @@ static void create_fat(const struct fat_params *fpp) {
     memcpy(s + 0x5a, boot_bin + BOOT_OFS_MBR + 0x5a, 0x200 - 0x5a);
     s += 0xe; dw(fpp->hidden_sector_count + fpp->reserved_sector_count);  /* reserved_sector_count. */
     s += 3; dw(fpp->fcp.sector_count > 0xffffU ? 0 : fpp->fcp.sector_count);
-    s += 0x1c - 0x15; dd(0);  /* hidden_sector_count. */
+    s += 0x18 - 0x15; dw(1);  /* sectors_per_track. Dummy value for Mtools to prevent the ``Total number of sectors (...) not a multiple of sectors per track (63)!'' error. This is unnecessary with the current adjust_geometry(...). */
+    s += 0x1c - 0x1a; dd(0);  /* hidden_sector_count. */
     dd(fpp->fcp.sector_count);
     if (fpp->fat_fstype == 32) {
       s += 0x30 - 0x24;
