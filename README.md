@@ -319,7 +319,8 @@ and they are also bootable by these systems. (Windows NT--2000--XP booting
 is not implemented yet.)
 
 For simplicity, specify one or more of the compatibility flags: *DOS3 DOS3.3
-DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 DOS8*. These will make bakefat select
+DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 MSDOS7.0 MSDOS7.1 PCDOS7.0 PCDOS7.1 DOS8
+WIN95A WIN95RTM WIN98OSR2 WIN98 WINME*. These will make bakefat select
 defaults for the specified operating system, and also check that the final
 filesystem parameters (chosen or configured) are compatible with that
 system.
@@ -375,6 +376,10 @@ Long list of limitations (may still be incomplete):
 * Windows NT 4.0 can't boot using LBA, so (for safety) the entire boot partition must fit to the first ~7.844 GiB of the HDD. Windows 2000 (and later derivatives of Windows NT) can boot using LBA.
 * The MBR partitioning scheme supports <=2T-512B partitions (and thus filesystems). GPT supports petabytes, but bakefat supports MBR only.
 * DOS doesn't support GPT, Windows NT earlier than Windows Vista (except for Windows XP for amd64) doesn't support GPT. Windows XP can't boot from GPT. Windows Vista and later can't boot from GPT using MBR (BIOS), but it can using UEFI.
+* IBM PC DOS and MS-DOS <7.0 don't support cluster size 32K on floppy.
+* IBM PC DOS and MS-DOS <=7.0 don't support cluster size >=1K on 160K and 180K floppies.
+* DOS 3.30 doesn't support cluster size >=2K on floppy, it supports only cluster sizes 512B and 1K.
+* DOS <5.00 doesn't support cluster size >=1K on 1440K floppy, it supports only cluster size 512B.
 
 ## The bakefat hard disk boot process
 

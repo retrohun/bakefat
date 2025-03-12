@@ -452,9 +452,13 @@ enum vhd_mode_t {  /* VHD mode. */
 };
 
 enum os_compat_t {  /* Operating system compatibility bitset. */
-  OSC_DOS3  = 1 << 3,  /* DOS 3.30--.    No FAT32 or 1FAT support. Limited HDD size support (16M and 32M only in bakefat). Must use 2K cluster size on HDD. Must use RDEC=512 for booting from HDD. Must use RSC=1. No 2880K support. */
-  OSC_DOS4  = 1 << 4,  /* DOS 4.x.       No FAT32 or 1FAT support. Must use RSC=1. */
-  OSC_DOS5X = 1 << 5   /* DOS 5.00--7.0. No FAT32 or 1FAT support. */
+  OSC_DOS3      = 1 << 3,  /* DOS 3.30--.    No FAT32 or 1FAT support. Limited HDD size support (16M and 32M only in bakefat). Must use 2K cluster size on HDD. Must use RDEC=512 for booting from HDD. Must use RSC=1. No 2880K support. No cluster size 32K on floppy support. No >=1K cluster size on 160K, 180K and 1440K floppy support. */
+  OSC_DOS4      = 1 << 4,  /* DOS 4.x.       No FAT32 or 1FAT support. Must use RSC=1. No cluster size 32K of floppy support. No >=1K cluster size on 160K, 180K and 1400K floppy support. */
+  OSC_DOS5_6    = 1 << 5,  /* DOS 5.00--6.x. No FAT32 or 1FAT support. No cluster size 32K on floppy support. No >=1K cluster size on 160K and 180K floppy support. */
+  OSC_MSDOS70   = 1 << 6,  /* MS-DOS 7.0 (Windows 95 A, Windows 95 RTM). Same support as OSC_DOS5_6, but supports cluster size 32K on floppy. */
+  OSC_MSDOS71_8 = 1 << 7,  /* MS-DOS 7.1 (Windows 95 OSR2, Windows 98), MS-DOS 8.0 (Windows ME), but supports FAT32 and 1FAT, and supports cluster size 32K on floppy, and supports cluster sizes 512B..32K on 160K and 180K floppy. */
+  OSC_PCDOS70   = 1 << 0,  /* IBM PC DOS 7.0. Same support as OSC_DOS5_6. */
+  OSC_PCDOS71   = 1 << 1   /* IBM PC DOS 7.1. Same support as OSC_DOS6_6, but supports FAT32 and 1FAT. */
 };
 
 /* 2040 GiB max VHD image size. This is enforced by QEMU 2.11.1
@@ -901,7 +905,7 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "FAT count flags: 1FAT 2FATS FC=<number>\n"
              "Root directory entry count: RDEC=<number>\n"
              "Reserved sector count: RSC=<number>\n"
-             "DOS compatibility flags: DOS3 DOS3.3 DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 DOS8 WIN95A WIN95OSR2 WIN98 WINME\n"
+             "DOS compatibility flags: DOS3 DOS3.3 DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 MSDOS7.0 MSDOS7.1 PCDOS7.0 PCDOS7.1 DOS8 WIN95A WIN95OSR2 WIN98 WINME\n"
              "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
   exit(is_help ? 0 : 1);
@@ -1046,10 +1050,22 @@ int main(int argc, char **argv) {
       fp.os_compat |= OSC_DOS3;
     } else if (strcasecmp(flag, "DOS4") == 0) {
       fp.os_compat |= OSC_DOS4;
-    } else if (strcasecmp(flag, "DOS5") == 0 || strcasecmp(flag, "DOS6") == 0 || strcasecmp(flag, "DOS7") == 0 || strcasecmp(flag, "DOS7.0") == 0 || strcasecmp(flag, "WIN95A") == 0 || strcasecmp(flag, "WIN95RTM") == 0) {
-      fp.os_compat |= OSC_DOS5X;
-    } else if (strcasecmp(flag, "DOS7.1") == 0 || strcasecmp(flag, "DOS8") == 0 || strcasecmp(flag, "WIN95OSR2") == 0 || strcasecmp(flag, "WIN98") == 0 || strcasecmp(flag, "WINME") == 0) {
-      /* No need to change fp.os_compat, these DOS versions are compatible with everything bakefat creates. */
+    } else if (strcasecmp(flag, "DOS5") == 0 || strcasecmp(flag, "DOS6") == 0) {
+      fp.os_compat |= OSC_DOS5_6;
+    } else if (strcasecmp(flag, "DOS7") == 0) {
+      fp.os_compat |= OSC_MSDOS70 | OSC_MSDOS71_8 | OSC_PCDOS70 | OSC_PCDOS71;
+    } else if (strcasecmp(flag, "DOS7.0") == 0) {
+      fp.os_compat |= OSC_MSDOS70 | OSC_PCDOS70;
+    } else if (strcasecmp(flag, "DOS7.1") == 0) {
+      fp.os_compat |= OSC_MSDOS71_8 | OSC_PCDOS71;
+    } else if (strcasecmp(flag, "PCDOS7.0") == 0) {
+      fp.os_compat |= OSC_PCDOS70;
+    } else if (strcasecmp(flag, "PCDOS7.1") == 0) {
+      fp.os_compat |= OSC_PCDOS71;
+    } else if (strcasecmp(flag, "MSDOS7.0") == 0 || strcasecmp(flag, "WIN95A") == 0 || strcasecmp(flag, "WIN95RTM") == 0) {
+      fp.os_compat |= OSC_MSDOS70;
+    } else if (strcasecmp(flag, "MSDOS7.1") == 0 || strcasecmp(flag, "DOS8") == 0 || strcasecmp(flag, "WIN95OSR2") == 0 || strcasecmp(flag, "WIN98") == 0 || strcasecmp(flag, "WINME") == 0) {
+      fp.os_compat |= OSC_MSDOS71_8;
     } else {
       msg_printf("fatal: unknown command-line flag: %s\n", flag);
       exit(1);
@@ -1083,20 +1099,20 @@ int main(int argc, char **argv) {
   fp.fcp.rootdir_entry_count = (fp.fcp.rootdir_entry_count + 0xf) & ~0xf;  /* Round up to a multiple of 16. */
   if (fp.fat_fstype == 32) fp.fcp.rootdir_entry_count = 0;
   if (fp.fcp.log2_sectors_per_cluster == (ub)-1) fp.fcp.log2_sectors_per_cluster = fp.default_log2_sectors_per_cluster;  /* Can still be (ub)-1 (unspecified) for non-floppy. */
-  if (fp.os_compat & (OSC_DOS3 | OSC_DOS4 | OSC_DOS5X)) {
+  if (fp.os_compat & (OSC_DOS3 | OSC_DOS4 | OSC_DOS5_6 | OSC_MSDOS70 | OSC_PCDOS70)) {
     if (fp.fat_count != 2) bad_usage0("OS compatibility requires 2FATS");
   }
   if (fp.os_compat & (OSC_DOS3 | OSC_DOS4)) {
     if (fp.reserved_sector_count != 1) bad_usage0("OS compatibility requires RSC=1");
   }
-  if (fp.os_compat & OSC_DOS3) {
-    if (fp.fcp.log2_sectors_per_cluster == 1U && (fp.fcp.sector_count == (160U << 1) || fp.fcp.sector_count == (180U << 1) || fp.fcp.sector_count == (1440U << 1))) bad_usage0("OS compatibility requires cluster size 512B for this floppy size");
-    if (fp.fcp.log2_sectors_per_cluster > 1U) bad_usage0("OS compatibility requires cluster size 512B or 1K for this floppy size");
-    /* !!! Check fp.fcp.log2_sectors_per_cluster for DOS >=4.01. DOS 5.00--6.22 doesn't allow 1400K 32K, but allows up to 16K. */
+  if (fp.os_compat & (OSC_DOS3 | OSC_DOS4 | OSC_DOS5_6 | OSC_MSDOS70 | OSC_PCDOS70 | OSC_PCDOS71)) {
+    if (fp.fcp.log2_sectors_per_cluster > 0U && (fp.fcp.sector_count == (160U << 1) || fp.fcp.sector_count == (180U << 1) || (fp.fcp.sector_count == (1440U << 1) && (fp.os_compat & (OSC_DOS3 | OSC_DOS4))))) bad_usage0("OS compatibility requires cluster size 512B for this floppy size");
+    if (fp.fcp.log2_sectors_per_cluster > 1U && (fp.os_compat & OSC_DOS3)) bad_usage0("OS compatibility requires floppy cluster size 512B or 1K");
+    if (fp.fcp.log2_sectors_per_cluster > 5U && (fp.os_compat & (OSC_DOS4 | OSC_DOS5_6 | OSC_PCDOS70 | OSC_PCDOS71))) bad_usage0("OS compatibility requires floppy cluster size at most 16K");
   }
   if (log2_size < 0) {  /* Floppy FAT12. */
     if (fp.fat_fstype != 12) bad_usage0("only FAT12 is supported for floppy");  /* Because boot code is not implemented. */
-    if (fp.os_compat & OSC_DOS3) {
+    if (fp.os_compat & (OSC_DOS3 | OSC_DOS4)) {
       if (fp.fcp.sector_count == (2880U << 1)) bad_usage0("OS compatibility conflicts with 2880K; use e.g. 1440K instead");
     }
     if (fp.fcp.rootdir_entry_count != fp.default_rootdir_entry_count ||
@@ -1159,7 +1175,7 @@ int main(int argc, char **argv) {
       if (max_log2_spc < (int)fp.fcp.log2_sectors_per_cluster) bad_usage0("sectors-per-cluster too large for this image size");
       if (min_log2_spc > (int)fp.fcp.log2_sectors_per_cluster) bad_usage0("sectors-per-cluster too small for this image size");
     }
-    if (fp.os_compat & (OSC_DOS3 | OSC_DOS4 | OSC_DOS5X)) {
+    if (fp.os_compat & (OSC_DOS3 | OSC_DOS4 | OSC_DOS5_6 | OSC_MSDOS70 | OSC_PCDOS70)) {
       if (fp.fat_fstype != 16) bad_usage0("OS compatibility requires FAT16 on HDD");
     }
     if (fp.os_compat & OSC_DOS3) {
