@@ -64,9 +64,11 @@ describes how it would look like and function.
   ISO9660, UDF, Linux ext2 etc.) on the virtual hard disk.
 * It creates disk image files. Alternatively it can also write to block
   devices (Linux and macOS only, not supported on Win32).
-* It uses sparse files for disk images on Linux and macOS so that space on
-  the host filesystem is only used by the files, not the empty space. An
-  empty disk images uses less than 32 KiB of host filesystem space (plus
+* It uses sparse files for disk images on Linux (various filesystems
+  including ext4, Btrfs and ZFS), FreeBSD (UFS only) macOS (APFS filesystem
+  only), Windows 2000 or later (NTFS filesystem only) so that space on the
+  host filesystem is only used by the files, not the empty space. An empty
+  disk images uses less than 32 KiB of host filesystem space (plus
   metadata).
 * It sets up the boot code so that it doesn't matter where the system files
   (such as io.sys) are on the FAT filesystem, as long as they are in the
@@ -320,13 +322,30 @@ The size suffix `K` indicates both kilobytes (1024 bytes), floppy image and
 FAT12 filesystem. It specifies the exact image size. The amount of free
 space will be smaller, because the filesystem metadata (boot sector, FAT
 tables, root directory etc.) also occupies space. (You can also specify
-*FAT12* explicitly, but it's not necessary.)
+*FAT12* explicitly, but it's not necessary.) Only the standard floppy sizes
+supported by DOS (160K 180K 320K 360K 720K 1200K 1440K 2880K) are available,
+custom and superfloppy sizes are not supported. QEMU 2.11.1 also supports
+these standard floppy sizes, and autodetects the geometry correctly.
 
 The size suffixes `M` (megabytes, 1024**2 bytes), `G` (gigabytes, 1024**3
 bytes), `T` (terabytes, 1024**4 bytes) are approximate, and they indicate
 hard disk image and either FAT16 or FAT32 filesystem. (The default is FAT16
 up to *2G*, and then FAT32, but you can specify *FAT16* or *FAT32*
-explicitly.)
+explicitly.) It's not possible to specify the size precisely, only some
+predefined (approximate) sizes are supported: 2M 4M 8M 16M 32M 64M 128M 256M
+512M 1G 2G 4G 8G 16G 32G 64G 128G 256G 512G 1T 2T. The short list of
+predefined sizes are because of a logic simplification in the current
+bakefat implementation. The sizes are approximate because lots of magic
+rounding has to be applied for QEMU CHS geometry, Mtools sector alignment
+and various system limitations.
+
+Please note that bakefat creates the disk image file as a sparse file
+(wherever the host operating system and filesystem support it), so a freshly
+created image consumes a few kilobytes of host storage space only, because
+the sector blocks consisting of NUL bytes are not actually stored, and most
+of the filesystem sectors are like that (FAT12 floppy: at most 3
+not-fully-NUL sectors, MBR+FAT16: at most 4 not-fully-NUL sectors,
+MBR+FAT32: at most 6 not-fully-NUL sectors).
 
 In front of the `<outfile.img>` arguments you can specify additional
 command-line flags to customize some filesystem parameters and to ensure and
