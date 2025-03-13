@@ -6,19 +6,15 @@
  * Compile with GCC for Unix: gcc -ansi -pedantic -W -Wall -Wno-overlength-strings -Werror -s -O2 -o bakefat bakefat.c
  * Compile with OpenWatcom C compiler for Win32: owcc -bwin32 -Wl,runtime -Wl,console=3.10 -Os --fno-stack-check -march=i386 -W -Wall -Wno-n201 -o bakefat.exe bakefat.c
  *
- * !! Fix last-sector-read bug.
+ * !! Fix last-sector-read bug. Test reading the last FAT sector within QEMU and VirtualBox.
  * !! doc: Check wheter MS-DOS 8.0 needs the first 4 sectors of io.sys to be contiguous.
  * !! doc: Can VirtualBox open with .img, without VBOX_E_OBJECT_NOT_FOUND? Or just .vhd extension?
  * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
  * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
  * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
  * !! Exclude FAT header and partition table from boot_bin, making it shorter.
- * !! Move relevant comments from fat16m.nasm to here.
  * !! Add implementation using <windows.h>, which compiles with MSVC, Borland C compiler and Digital Mars C compiler in addition to OpenWatcom C compiler.
  * !! Add support for VHD_SPARSE (SPARSEVHD). !! Experiment with block sizes smaller than 2 MiB. (NTFS sparse files have block size 64 KiB.)
- * !! Add tests for reading the last FAT sector within QEMU and VirtualBox.
- * !! Add operating system compatibility flag (e.g. no FAT32 for MS-DOS <=6.x, no 1FAT for MS-DOS <=6.x, <=128GB for Virtual PC).
- * !! Add commnad-line flag to make fat_rootdir_entry_count configurable.
  * !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32.
  * !! Add command-line flag to make fp.volume_id configurable.
  * !! Make it possible to specify the same size etc. flag multiple times, idempontently.
