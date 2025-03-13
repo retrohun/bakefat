@@ -18,10 +18,9 @@ perl=tools/miniperl-5.004.04.upx
 nasm=tools/nasm-0.98.39.upx
 busybox1=tools/busybox-minicc-1.21.1.upx  # awk gsub(...) is not buggy here.
 
-"$nasm" -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm
-"$nasm" -O0 -w+orphan-labels -f bin -DJUST_BS -o fat12b.bin fat12b.nasm
+"$nasm" -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm  # Also includes fat12b.bin.
 
-od -An -to1 -v boot.bin fat12b.bin >boot.od
+od -An -to1 -v boot.bin >boot.od
 "$busybox1" awk '{gsub(/ /,"\\");print"\""$0"\""}' <boot.od >boot.h  # awk gsub(...) in our busybox is buggy, use $busybox1 instead.
 rm -f boot.od
 

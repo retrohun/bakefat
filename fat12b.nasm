@@ -99,16 +99,19 @@ fat_hidden_sector_count equ 0  ; No sectors preceding the boot sector.
 
 bits 16
 cpu 8086
-org  0  ; Boot code is independent of `org 0x7c00'.
 
-%macro assert_fofs 1
-  times +(%1)-($-$$) times 0 nop
-  times -(%1)+($-$$) times 0 nop
-%endm
-%macro assert_at 1
-  times +(%1)-$ times 0 nop
-  times -(%1)+$ times 0 nop
-%endm
+%ifndef FAT12B_INCLUDED
+  org 0  ; Boot code is independent of `org 0x7c00'.
+
+  %macro assert_fofs 1
+    times +(%1)-($-$$) times 0 nop
+    times -(%1)+($-$$) times 0 nop
+  %endm
+  %macro assert_at 1
+    times +(%1)-$ times 0 nop
+    times -(%1)+$ times 0 nop
+  %endm
+%endif
 
 fat_sectors_per_fat equ ((((fat_cluster_count+2)*3+1)>>1)+0x1ff)>>9  ; Good formula for FAT12. We have the +2 here because clusters 0 and 1 have a next-pointer in the FATs, but they are not stored on disk.
 fat_rootdir_sector_count equ (fat_rootdir_entry_count+0xf)>>4
@@ -136,10 +139,15 @@ fat_maximum_sector_count equ fat_minimum_sector_count+fat_sectors_per_cluster-1
   %error TOO_MANY_SECTOS_FOR_FAT12  ; 'Too many sectors, not supported by our FAT12 boot code.'
 %endif
 
-BOOT_SIGNATURE equ 0xaa55  ; dw.
+%ifndef BOOT_SIGNATURE
+  BOOT_SIGNATURE equ 0xaa55  ; dw.
+  %define BOOT_SIGNATURE BOOT_SIGNATURE
+%endif
 
-boot_sector:
-assert_fofs 0
+boot_sector_fat12:
+%ifndef FAT12B_INCLUDED
+  assert_fofs 0
+%endif
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 .header:	jmp strict short .boot_code
 		nop  ; 0x90 for CHS. Another possible value is 0x0e for LBA. Who uses it? It is ignored by .boot_code.

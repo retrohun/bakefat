@@ -39,6 +39,7 @@ CHS_OR_LBA:
 .LBA equ 0x0e  ; 0x0c may also indicate LBA.
 
 BOOT_SIGNATURE equ 0xaa55  ; dw.
+%define BOOT_SIGNATURE BOOT_SIGNATURE
 
 %macro fat_header 8  ; %1: .reserved_sector_count value; %2: .sector_count value; %3: .fat_count, %4: .sectors_per_cluster, %5: fat_sectors_per_fat, %6: fat_rootdir_sector_count, %7: fat_32 (0 for FAT16, 1 for FAT32), %8: partition_gap_sector_count.
 ; More info about FAT12, FAT16 and FAT32: https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
@@ -1165,5 +1166,19 @@ boot_sector_fat16:
 assert_at .header+0x200
 
 assert_fofs 0x600
+
+%ifdef CONFIG_FAT12B  ; open(2) will support only flags values O_RDONLY and O_WRONLY|O_CREAT|O_TRUNC, not even |O_LARGEFILE. !! Add O_LARGEFILE support for opening >=2 GiB files on Linux.
+  %if CONFIG_FAT12B
+  %else
+    %undef CONFIG_FAT12B
+  %endif
+%else
+  %define CONFIG_FAT12B  ; Default is on.
+%endif
+%ifdef CONFIG_FAT12B
+  %define JUST_BS  ; For fat12b.nasm .
+  %define FAT12B_INCLUDED  ; For fat12b.nasm .
+  %include 'fat12b.nasm'
+%endif
 
 ; __END__
