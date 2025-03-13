@@ -241,20 +241,25 @@
 #  endif
 #endif
 
-static const char boot_bin[] =
-#  include "boot.h"
-;
-
 /* Byte offsets in boot_bin. */
 #define BOOT_OFS_MBR 0
 #define BOOT_OFS_FAT32 0x200
 #define BOOT_OFS_FAT16 0x400
 #define BOOT_OFS_FAT12 0x600
 #define BOOT_OFS_FAT12_OFSS 0x800
+#define BOOT_OFS_END (BOOT_OFS_FAT12_OFSS + 4 * 2)
+
+#if CONFIG_INCLUDE_BOOT_BIN
+  const char boot_bin[] =
+#    include "boot.h"
+  ;
+  typedef char assert_sizeof_boot_bin[sizeof(boot_bin) == BOOT_OFS_END + 1 ? 1 : -1];
+#else
+  extern const char boot_bin[];  /* Defined in boot.obj. */
+#endif
 
 typedef char assert_sizeof_int[sizeof(int) >= 4 ? 1 : -1];  /* TODO(pts): make printf(3) use the length specifier "l" if int is shorter. */
 typedef char assert_sizeof_uint32_t[sizeof(uint32_t) == 4 ? 1 : -1];
-typedef char assert_sizeof_boot_bin[sizeof(boot_bin) == 4 * 0x200 + 4 * 2 + 1 ? 1 : -1];
 
 typedef uint8_t ub;
 typedef uint16_t uw;

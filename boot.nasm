@@ -1,3 +1,4 @@
+; nasm:-O0
 ;
 ; boot.nasm: universal boot code (MBR, FAT16 boot sector and FAT32 boot sector) for MS-DOS 3.30--8.0 and IBM PC DOS 3.30--7.1
 ; by pts@fazekas.hu at Thu Dec 26 01:51:51 CET 2024
@@ -18,10 +19,6 @@
 ;   for example, .sectors_per_track is not set in the DPT.
 ;
 
-bits 16
-cpu 8086
-;org 0x7c00  ; Independent.
-
 %macro assert_fofs 1
   times +(%1)-($-$$) times 0 nop
   times -(%1)+($-$$) times 0 nop
@@ -30,6 +27,20 @@ cpu 8086
   times +(%1)-$ times 0 nop
   times -(%1)+$ times 0 nop
 %endm
+
+%ifidn __OUTPUT_FORMAT__, obj
+  section CONST2 USE32 class=DATA align=4  ; Other, non-string-literal .rodata.
+%elifidn __OUTPUT_FORMAT__, elf
+  section .rodata align=1
+%elifidn __OUTPUT_FORMAT__, elf32
+  section .rodata align=1
+%elifidn __OUTPUT_FORMAT__, win32
+  section .rdata align=4  ; TODO(pts): What does MSVC 6.0 use?
+%endif
+
+bits 16
+cpu 8086
+;org 0x7c00  ; Independent.
 
 PSTATUS:  ; Partition status.
 .ACTIVE equ 0x80
@@ -141,6 +152,9 @@ assert_at .header+0x3e
 %endm
 
 assert_fofs 0
+global _boot_bin
+_boot_bin:
+
 mbr:  ; Master Boot record, sector 0 (LBA) of the drive.
 ; More info about the MBR: https://wiki.osdev.org/MBR_(x86)
 ; More info about the MBR: https://en.wikipedia.org/wiki/Master_boot_record

@@ -1,3 +1,4 @@
+; nasm:-O0
 ;
 ; fat12b.nasm: create bootable DOS FAT12 disk images
 ; by pts@fazekas.hu at Wed Jan 15 15:11:13 CET 2025

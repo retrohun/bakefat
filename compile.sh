@@ -24,7 +24,7 @@ od -An -to1 -v boot.bin >boot.od
 "$busybox1" awk '{gsub(/ /,"\\");print"\""$0"\""}' <boot.od >boot.h  # awk gsub(...) in our busybox is buggy, use $busybox1 instead.
 rm -f boot.od
 
-sh mmlibcc.sh --sh-script-mydir . "$@" -o bakefat bakefat.c  # -march=i386 -Werror -Wno-n201
-sh mmlibcc.sh --sh-script-mydir . -bwin32 "$@" -o bakefat.exe bakefat.c
+sh mmlibcc.sh --sh-script-mydir         . -DCONFIG_INCLUDE_BOOT_BIN "$@" -o bakefat     bakefat.c  # -march=i386 -Werror -Wno-n201
+sh mmlibcc.sh --sh-script-mydir . -bwin32 -DCONFIG_INCLUDE_BOOT_BIN "$@" -o bakefat.exe bakefat.c
 
 : "$0" OK.
