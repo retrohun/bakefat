@@ -310,6 +310,9 @@ Here is how to create floppy images using NASM only:
 
 ## The bakefat command line
 
+The get a full list of supported command-line flags, run `bakefat help` or
+`bakefat --help`.
+
 Each bakefat invocation creates or overwrites a FAT filesystem image file.
 The bakefat command-line consists of one or more flags, and it ends with the
 filename of the image file. The order of flags doesn't matter. bakefat

@@ -937,7 +937,7 @@ int main(int argc, char **argv) {
   memset(&fp, '\0', sizeof(fp));
   fp.default_log2_sectors_per_cluster = fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
   fp.volume_id = 0x1234abcd;
-  is_help = argv[1] && strcasecmp(argv[1], "--help") == 0;
+  is_help = argv[1] && (strcasecmp(argv[1], "--help") == 0 || (!argv[2] && strcasecmp(argv[1], "help") == 0));
   for (arge = (const char **)argv + 1; ; ++arge) {
     if (!*arge) {  /* The last argument is the output image file name (<outfile.img>). */
       argfn = --arge;
