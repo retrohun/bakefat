@@ -460,7 +460,7 @@ assert_at .header+0x3e
 		jmp short .next_msg_byte
 .halt:		cli
 .hang:		hlt
-		jmp .hang
+		jmp short .hang
 		; Not reached.
 .try_next_entry:
 		lea di, [di+0x20]  ; DI := address of next directory entry.
