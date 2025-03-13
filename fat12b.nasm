@@ -5,6 +5,9 @@
 ; Compile with: nasm -O0 -w+orphan-labels -f bin -DP_1200K -o myfd.img fat12b.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
+; See boot_process.md for a general description of the BIOS (legacy, MBR)
+; boot process.
+;
 
 ; All floppy image sizes officially supported by MS-DOS and PC-DOS are
 ; available below as presets.
@@ -190,7 +193,7 @@ assert_at .header+0x36
 assert_at .header+0x3e
 .boot_code:
 
-; --- MS-PC-DOS-3.30-v6-v7 universal, independent FAT12 boot sector code.
+; --- MS-PC-DOS-3.30-8.0 universal, independent, for-floppy FAT12 boot sector code
 ;
 ; Features:
 ;
@@ -198,9 +201,11 @@ assert_at .header+0x3e
 ;   3.30, 4.01, 5.00 and 6.22.
 ; * It is able to boot ibmbio.com+ibmdos.com from IBM PC DOS 3.30--7.1.
 ;   Tested with: 7.0 and 7.1.
-; * It is able to boot io.sys from Windows 95 RTM (OSR1), Windows 95 OSR2,
-;   Windows 98 FE, Windows 98 SE, and the unofficial MS-DOS 8.0 (MSDOS8.ISO
-;   on http://www.multiboot.ru/download/) based on Windows ME.
+; * It is able to boot io.sys from Windows 95 RTM (Windows 95 A, Windows 95
+;   OSR1, MS-DOS 7.0), Windows 95 OSR2 (MS-DOS 7.1), Windows 98 FE (also
+;   MS-DOS 7.1, but newer), Windows 98 SE (also MS-DOS 7.1, but newer), and
+;   the unofficial MS-DOS 8.0 (MSDOS8.ISO on
+;   http://www.multiboot.ru/download/) based on Windows ME.
 ; * It autodetects the operating sytem (based on the kernel filenames and
 ;   their sizes), and uses the appropriate load protocol: MS-DOS v6
 ;   (supported by MS-DOS 3.30--6.22 and IBM PC DOS 3.30--7.0), MS-DOS v7
@@ -251,7 +256,8 @@ assert_at .header+0x3e
 ;   * `SYS` means that an invalid value has been found when following a FAT
 ;     chain pointer.
 ;   * `MK` is a subsequent error message displayed by MS-DOS v7 io.sys
-;     msload. If you see it, press a key to reboot.
+;     msload. (This message is actually stored in this boot setor.)
+;     If you see it, press a key to reboot.
 ;
 ; History:
 

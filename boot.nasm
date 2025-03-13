@@ -1,5 +1,5 @@
 ;
-; boot.nasm: boot code (MBR, FAT16 boot sectors and FAT32 boot sector)
+; boot.nasm: universal boot code (MBR, FAT16 boot sector and FAT32 boot sector) for MS-DOS 3.30--8.0 and IBM PC DOS 3.30--7.1
 ; by pts@fazekas.hu at Thu Dec 26 01:51:51 CET 2024
 ;
 ; Compile with: nasm -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm
@@ -7,8 +7,6 @@
 ;
 ; See boot_process.md for a general description of the BIOS (legacy, MBR)
 ; boot process.
-;
-; See fat16m.nasm for more docs and TODOs.
 ;
 ; The boot code in this file can boot from a HDD, but not from a floppy
 ; disk, because:
@@ -498,14 +496,14 @@ assert_at .header+0x200
 		sti
 %endm  ; fat_boot_sector_common
 
-; --- MS-PC-DOS-v7 universal FAT32 boot sector.
+; --- MS-PC-DOS-7.1-8.0 universal FAT32 boot sector.
 ;
 ; Features and requirements:
 ;
 ; * Please note that this boot sector only works if it is loaded by
 ;   the MBR defined earlier this file. This is because preparations and
 ;   library functions are implemented in the MBR boot code.
-; * It is able to boot MS-DOS v7 (Windows 95 OSR2, Windows 98 FE, Windows 98
+; * It is able to boot MS-DOS 7.1 (Windows 95 OSR2, Windows 98 FE, Windows 98
 ;   SE, the unofficial MS-DOS 8.0 based on Windows ME: MSDOS8.ISO on
 ;   http://www.multiboot.ru/download/) io.sys and IBM PC DOS 7.1 ibmbio.com
 ;   and ibmdos.com. Earlier versions of MS-DOS and IBM PC DOS don't support
@@ -851,20 +849,22 @@ boot_sector_fat32:
 .boot_signature: dw BOOT_SIGNATURE
 assert_at .header+0x200
 
-; --- MS-PC-DOS-v4-v5-v6-v7 universal FAT16 boot sector.
+; --- MS-PC-DOS-3.30-8.0 universal FAT16 boot sector.
 ;
 ; Features and requirements:
 ;
 ; * Please note that this boot sector only works if it is loaded by
 ;   the MBR defined earlier this file. This is because preparations and
 ;   library functions are implemented in the MBR boot code.
-; * It is able to boot io.sys+msdos.sys from MS-DOS 4.01--6.22. Tested with:
-;   4.01, 5.00 and 6.22.
-; * It is able to boot ibmbio.com+ibmdos.com from IBM PC DOS 4.01--7.1.
+; * It is able to boot io.sys+msdos.sys from MS-DOS 3.30--6.22. Tested with:
+;   3.30, 4.01, 5.00 and 6.22.
+; * It is able to boot ibmbio.com+ibmdos.com from IBM PC DOS 3.30--7.1.
 ;   Tested with: 7.0 and 7.1.
-; * It is able to boot io.sys from Windows 95 RTM (OSR1), Windows 95 OSR 2,
-;   Windows 98 FE, Windows 98 SE, and the unofficial MS-DOS 8.0 (MSDOS8.ISO
-;   on http://www.multiboot.ru/download/) based on Windows ME.
+; * It is able to boot io.sys from Windows 95 RTM (Windows 95 A, Windows 95
+;   OSR1, MS-DOS 7.0), Windows 95 OSR2 (MS-DOS 7.1), Windows 98 FE (also
+;   MS-DOS 7.1, but newer), Windows 98 SE (also MS-DOS 7.1, but newer), and
+;   the unofficial MS-DOS 8.0 (MSDOS8.ISO on
+;   http://www.multiboot.ru/download/) based on Windows ME.
 ; * With some additions (in the future), it may be able to boot FreeDOS
 ;   (kernel.sys), SvarDOS (kernel.sys), EDR-DOS (drbio.sys), Windows NT 3.x
 ;   (ntldr), Windows NT 4.0 (ntldr), Windows 2000 (ntldr), Windows XP
@@ -878,13 +878,10 @@ assert_at .header+0x200
 ;   95--98--ME--XP boots.
 ; * It works with a 8086 CPU (no need for 386).
 ; * It can only boot from HDD, there is no floppy disk support. The
-;   obstacles are the following: uses boot code in the MBR (and floppies
-;   don't have an MBR). Also typical floppy disks (smaller than 2 MiB) are
+;   obstacle is the following: uses boot code in the MBR (and floppies
+;   don't have an MBR). Also most floppy disks (smaller than 2 MiB) are
 ;   too small for a FAT16 filesystem (at least 2 MiB: 0x1000 clusters with
 ;   0x200 bytes each).
-; * !! Add a FAT12 boot sector.
-; * !! Add an independent, CHS-harcoded-to-BPB FAT12 boot sector designed
-;   for floppy disks.
 ;
 ; History:
 
@@ -927,6 +924,7 @@ boot_sector_fat16:
 		lds si, [bx]
 		push si
 		mov di, 0x522  ; Windows 95--98--ME also copy to here. https://stanislavs.org/helppc/bios_data_area.html also lists it.
+		; Now: ES == 0 (as set up by mbr.boot_code).
 		mov [es:bx], di  ; Change int 1eh vector (DPT).
 		mov [es:bx+2], es
 		mov cx, 0xb
@@ -951,7 +949,7 @@ boot_sector_fat16:
 .add_fat:	add ax, [bp-.header+.sectors_per_fat]
 		adc dx, byte 0
 		loop .add_fat
-                ; Now: DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem.
+                ; Now: CX == 0; DX:AX == the sector offset (LBA) of the root directory in this FAT filesystem.
 		mov bx, [bp-.header+.rootdir_entry_count]
 		mov di, bx
 		add di, byte 0xf

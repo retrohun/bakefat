@@ -5,7 +5,11 @@
 ; Compile with: nasm -O0 -w+orphan-labels -f bin -o fat16m.bin fat16m.nasm
 ; Minimum NASM version required to compile: 0.98.39
 ;
-; This is a legacy file only retained for its comments only and for its use in mkfs.sh.
+; This is a legacy file only retained for its comments only and for its use
+; in mkfs.sh.
+;
+; See boot_process.md for a general description of the BIOS (legacy, MBR)
+; boot process.
 ;
 
 bits 16
@@ -158,7 +162,7 @@ assert_at .header+0x52
 .fstype:	db 'FAT32   '
 assert_at .header+0x5a
 %else  ; Non-FAT32.
-; Based on: truncate -s 2155216896 hda.img  # !! Magic size value for QEMU, see what.txt.
+; Based on: truncate -s 2155216896 hda.img  # !! Magic size value for QEMU, see notes.txt.
 ; Based on: rm -f fat16.img && mkfs.vfat -a -C -D 0 -f 1 -F 16 -i abcd1234 -r 128 -R 57 -s 64 -S 512 -h 63 --invariant fat16.img 2096766
 assert_at .header+0x24
 .drive_number: db 0x80
@@ -323,3 +327,5 @@ second_fat:
 %endif
 		times (second_fat-$)&0x1ff db 0  ; Align to multiple of sector size (0x200).
 %endif
+
+; __END__
