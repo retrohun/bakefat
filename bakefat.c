@@ -17,7 +17,6 @@
  * !! Add support for VHD_SPARSE (SPARSEVHD). !! Experiment with block sizes smaller than 2 MiB. (NTFS sparse files have block size 64 KiB.)
  * !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32.
  * !! Add command-line flag to make fp.volume_id configurable.
- * !! Make it possible to specify the same size etc. flag multiple times, idempontently.
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
  * !! Move all relevant comments from fat16m.nasm to bakefat.c, and remove fat16m.nasm.
  *
@@ -929,6 +928,7 @@ int main(int argc, char **argv) {
   ud fat_clusters_sec_ofs;
   ud hi, lo, mid;
   ud u;
+  ub b;
 
   (void)argc;
 #  ifdef __MMLIBC386__
@@ -954,68 +954,72 @@ int main(int argc, char **argv) {
     for (flag = *arg; *flag == '-' || *flag == '/'; ++flag) {}  /* Skip leading - and / characters in flag. */
     for (prp = fat12_presets; prp != ARRAY_END(fat12_presets); ++prp) {
       if (strcasecmp(flag, prp->name) == 0) {
-        if (log2_size != 0) { error_multiple_size:
-          bad_usage0("multiple image sizes specified");
+        if (fp.fat_fstype && fp.fat_fstype != 12) goto error_conflicting_fat_fstype;
+        if (log2_size && (log2_size != -1 || fp.fcp.sector_count != prp->fcp.sector_count)) { error_conflicting_size:
+          bad_usage0("conflicting image sizes specified");
         }
         log2_size = -1;
+        u = fp.fcp.rootdir_entry_count;  /* Save. */
+        b = fp.fcp.log2_sectors_per_cluster;  /* Save. */
         fp.fcp = prp->fcp;  /* This is a memcpy(). */
         fp.default_fat_count = 2;
         fp.default_reserved_sector_count = 1;
         fp.default_rootdir_entry_count = fp.fcp.rootdir_entry_count;
         fp.default_log2_sectors_per_cluster = fp.fcp.log2_sectors_per_cluster;
-        fp.fcp.rootdir_entry_count = 0;  /* Can be changed. */
-        fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Can be changed. */
+        fp.fcp.rootdir_entry_count = u;  /* Restore. */
+        fp.fcp.log2_sectors_per_cluster = b;  /* Restore. */
         fp.fat_fstype = 12;
         goto next_flag;
       }
     }
     for (csp = hdd_size_presets_m_21; csp != ARRAY_END(hdd_size_presets_m_21); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_m_21 + 21; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { b = csp - hdd_size_presets_m_21 + 21; set_size: if (log2_size && (ub)log2_size != b) goto error_conflicting_size; log2_size = b; goto next_flag; }
     }
     for (csp = hdd_size_presets_g_30; csp != ARRAY_END(hdd_size_presets_g_30); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_g_30 + 30; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { b = csp - hdd_size_presets_g_30 + 30; goto set_size; }
     }
     for (csp = hdd_size_presets_t_40; csp != ARRAY_END(hdd_size_presets_t_40); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (log2_size) goto error_multiple_size; log2_size = csp - hdd_size_presets_t_40 + 40; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { b = csp - hdd_size_presets_t_40 + 40; goto set_size; }
     }
     for (csp = sectors_per_cluster_presets_b_9; csp != ARRAY_END(sectors_per_cluster_presets_b_9); ++csp) {
       if (strcasecmp(flag, *csp) == 0) {
-        if (fp.fcp.log2_sectors_per_cluster != (ub)-1) { error_multiple_spc:
-          bad_usage0("multiple sectors-per-cluster specified");
+        b = csp - sectors_per_cluster_presets_b_9 + 9 - 9;
+        if (fp.fcp.log2_sectors_per_cluster != (ub)-1 && fp.fcp.log2_sectors_per_cluster != b) { error_conflicting_spc:
+          bad_usage0("conflicting sectors-per-cluster specified");
         }
-        fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_b_9 + 9 - 9;
+        fp.fcp.log2_sectors_per_cluster = b;
         goto next_flag;
       }
     }
     for (csp = sectors_per_cluster_presets_s_9; csp != ARRAY_END(sectors_per_cluster_presets_s_9); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_s_9 + 9 - 9; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_conflicting_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_s_9 + 9 - 9; goto next_flag; }
     }
     for (csp = sectors_per_cluster_presets_k_10; csp != ARRAY_END(sectors_per_cluster_presets_k_10); ++csp) {
-      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_multiple_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_k_10 + 10 - 9; goto next_flag; }
+      if (strcasecmp(flag, *csp) == 0) { if (fp.fcp.log2_sectors_per_cluster != (ub)-1) goto error_conflicting_spc; fp.fcp.log2_sectors_per_cluster = csp - sectors_per_cluster_presets_k_10 + 10 - 9; goto next_flag; }
     }
     if (strcasecmp(flag, "FAT12") == 0) {
-      if (fp.fat_fstype && fp.fat_fstype != 12) { error_multiple_fat_fstype:
-        bad_usage0("multiple FAT type flags specified");
+      if (fp.fat_fstype && fp.fat_fstype != 12) { error_conflicting_fat_fstype:
+        bad_usage0("conflicting FAT type flags specified");
       }
       fp.fat_fstype = 12;
     } else if (strcasecmp(flag, "FAT16") == 0) {
-      if (fp.fat_fstype && fp.fat_fstype != 16) goto error_multiple_fat_fstype;
+      if (fp.fat_fstype && fp.fat_fstype != 16) goto error_conflicting_fat_fstype;
       fp.fat_fstype = 16;
     } else if (strcasecmp(flag, "FAT32") == 0) {
-      if (fp.fat_fstype && fp.fat_fstype != 32) goto error_multiple_fat_fstype;
+      if (fp.fat_fstype && fp.fat_fstype != 32) goto error_conflicting_fat_fstype;
       fp.fat_fstype = 32;
     } else if (strncasecmp(flag, "RDEC=", 5) == 0) {
       if (parse_ud(flag + 5, &u) != PARSEINT_OK) goto error_invalid_integer;
       if (u - 1U > 0xfff0U - 1U) bad_usage0("root directory entry count must be between 1 and 65520");
       if (fp.fcp.rootdir_entry_count && fp.fcp.rootdir_entry_count != u) {
-        bad_usage0("multiple root directory entry counts specified");
+        bad_usage0("conflicting root directory entry counts specified");
       }
       fp.fcp.rootdir_entry_count = u;
     } else if (strncasecmp(flag, "RSC=", 4) == 0) {
       if (parse_ud(flag + 4, &u) != PARSEINT_OK) goto error_invalid_integer;
       if (u - 1U > 0xffffU - 1U) bad_usage0("reserved sector count must be between 1 and 65535");
       if (fp.reserved_sector_count && fp.reserved_sector_count != u) {
-        bad_usage0("multiple reserved sector counts specified");
+        bad_usage0("conflicting reserved sector counts specified");
       }
       fp.reserved_sector_count = u;
     } else if (strncasecmp(flag, "FC=", 3) == 0) {
@@ -1023,23 +1027,23 @@ int main(int argc, char **argv) {
         bad_usage1("invalid integer in flag", flag);
       }
       if (u - 1U > 2U - 1U) bad_usage0("FAT FAT count must be 1 or 2");
-      if (fp.fat_count && fp.fat_count != u) { error_multiple_fat_count:
-        bad_usage0("multiple FAT FAT counts specified");
+      if (fp.fat_count && fp.fat_count != u) { error_conflicting_fat_count:
+        bad_usage0("conflicting FAT FAT counts specified");
       }
       fp.fat_count = u;
     } else if (strcasecmp(flag, "1FAT") == 0 || strcasecmp(flag, "1F") == 0) {
-      if (fp.fat_count && fp.fat_count != 1) goto error_multiple_fat_count;
+      if (fp.fat_count && fp.fat_count != 1) goto error_conflicting_fat_count;
       fp.fat_count = 1;
     } else if (strcasecmp(flag, "2FATS") == 0 ||strcasecmp(flag, "2F") == 0) {
-      if (fp.fat_count && fp.fat_count != 2) goto error_multiple_fat_count;
+      if (fp.fat_count && fp.fat_count != 2) goto error_conflicting_fat_count;
       fp.fat_count = 2;
     } else if (strcasecmp(flag, "NOVHD") == 0) {
-      if (fp.vhd_mode && fp.vhd_mode != VHD_NOVHD) { error_multiple_vhd_mode:
-        bad_usage0("multiple VHD values specified");
+      if (fp.vhd_mode && fp.vhd_mode != VHD_NOVHD) { error_conflicting_vhd_mode:
+        bad_usage0("conflicting VHD values specified");
       }
       fp.vhd_mode = VHD_NOVHD;
     } else if (strcasecmp(flag, "VHD") == 0) {
-      if (fp.vhd_mode && fp.vhd_mode != VHD_FIXED) goto error_multiple_vhd_mode;
+      if (fp.vhd_mode && fp.vhd_mode != VHD_FIXED) goto error_conflicting_vhd_mode;
       fp.vhd_mode = VHD_FIXED;
     } else if (strcasecmp(flag, "DOS3") == 0 || strcasecmp(flag, "DOS3.3") == 0) {
       fp.os_compat |= OSC_DOS3;

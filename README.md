@@ -308,6 +308,14 @@ Here is how to create floppy images using NASM only:
    qemu-system-i386 -M pc-1.0 -m 16 -nodefaults -vga cirrus -drive file=myhd.img,format=raw -drive file=fdsys.img,format=raw,if=floppy -boot c
    ```
 
+## The bakefat command line
+
+Each bakefat invocation creates or overwrites a FAT filesystem image file.
+The bakefat command-line consists of one or more flags, and it ends with the
+filename of the image file. The order of flags doesn't matter. bakefat
+reports an error if conflicting flag values are specified (such as *720K*
+and *FAT16*).
+
 ## Compatibility and limitations
 
 Each mention of DOS below means both MS-DOS and IBM PC DOS.
