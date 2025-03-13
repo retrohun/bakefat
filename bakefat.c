@@ -16,7 +16,6 @@
  * !! Add implementation using <windows.h>, which compiles with MSVC, Borland C compiler and Digital Mars C compiler in addition to OpenWatcom C compiler.
  * !! Add support for VHD_SPARSE (SPARSEVHD). !! Experiment with block sizes smaller than 2 MiB. (NTFS sparse files have block size 64 KiB.)
  * !! Add command-line flag for fewer reserved sectors (minimum: 2 or 3) for FAT32.
- * !! Add command-line flag to make fp.volume_id configurable.
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
  * !! Move all relevant comments from fat16m.nasm to bakefat.c, and remove fat16m.nasm.
  *
@@ -822,7 +821,8 @@ typedef enum parseint_error_t {
   PARSEINT_OK = 0,
   PARSEINT_BAD_PREFIX = 1,
   PARSEINT_BAD_CHAR = 2,
-  PARSEINT_OVERFLOW = 3
+  PARSEINT_OVERFLOW = 3,
+  PARSEINT_TOO_SHORT = 4  /* For parse_volume_id(...). */
 } parseint_error_t;
 
 /* Parses a C unsigned decimal, hexadecimal, octal literal, sets *result_ptr
@@ -850,7 +850,8 @@ static parseint_error_t parse_ud(const char *s, ud *result_ptr) {
     return PARSEINT_BAD_PREFIX;
   }
   for (u = 0, result = PARSEINT_OK; *s != '\0'; ++s) {
-    digit = (base == 16 && (*s | 32) - ('a' + 0U) < 6U) ? (*s | 32) - ('a' - 10U) : *s - ('0' + 0U);
+    digit = *s;
+    digit = (base == 16 && (digit | 32U) - ('a' + 0U) < 6U) ? (digit | 32U) - ('a' - 10U) : digit - ('0' + 0U);
     if (digit >= base) return PARSEINT_BAD_CHAR;
     if (u > limit) result = PARSEINT_OVERFLOW;
     u *= base;
@@ -859,6 +860,27 @@ static parseint_error_t parse_ud(const char *s, ud *result_ptr) {
   }
   *result_ptr = u;
   return result;
+}
+
+/* Parses a FAT volume ID (8-digit hexadecimal, with a hyphen (dash, -) in
+ * the middle), sets *result_ptr to a result. The parser is lenient on the
+ * hyphens: it allows them anywhere. Returns PARSEINT_OK == 0 on success.
+ */
+static parseint_error_t parse_volume_id(const char *s, ud *result_ptr) {
+  ud u;
+  ub count, digit;
+  for (u = 0, count = 8; *s != '\0'; ++s) {
+    if ((digit = *s) == '-') continue;
+    if (!count) return PARSEINT_OVERFLOW;
+    digit = (digit | 32U) - ('a' + 0U) < 6U ? (digit | 32U) - ('a' - 10U) : digit - ('0' + 0U);
+    if (digit > 0xfU) return PARSEINT_BAD_CHAR;
+    --count;
+    u <<= 4U;
+    u |= digit;
+  }
+  if (count != 0) return PARSEINT_TOO_SHORT;
+  *result_ptr = u;
+  return PARSEINT_OK;
 }
 
 static noreturn void usage(ub is_help, const char *argv0) {
@@ -899,6 +921,7 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "FAT count flags: 1FAT 2FATS FC=<number>\n"
              "Root directory entry count: RDEC=<number>\n"
              "Reserved sector count: RSC=<number>\n"
+             "Volume ID: VID=<hex-with-hyphen>\n"
              "DOS compatibility flags: DOS3 DOS3.3 DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 MSDOS7.0 MSDOS7.1 PCDOS7.0 PCDOS7.1 DOS8 WIN95A WIN95OSR2 WIN98 WINME\n"
              "VHD footer flags: NOVHD VHD\n",
              BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
@@ -929,6 +952,7 @@ int main(int argc, char **argv) {
   ud hi, lo, mid;
   ud u;
   ub b;
+  ub had_volume_id;
 
   (void)argc;
 #  ifdef __MMLIBC386__
@@ -936,7 +960,7 @@ int main(int argc, char **argv) {
 #  endif
   memset(&fp, '\0', sizeof(fp));
   fp.default_log2_sectors_per_cluster = fp.fcp.log2_sectors_per_cluster = (ub)-1;  /* Unspecified. */
-  fp.volume_id = 0x1234abcd;
+  had_volume_id = 0;
   is_help = argv[1] && (strcasecmp(argv[1], "--help") == 0 || (!argv[2] && strcasecmp(argv[1], "help") == 0));
   for (arge = (const char **)argv + 1; ; ++arge) {
     if (!*arge) {  /* The last argument is the output image file name (<outfile.img>). */
@@ -1022,6 +1046,11 @@ int main(int argc, char **argv) {
         bad_usage0("conflicting reserved sector counts specified");
       }
       fp.reserved_sector_count = u;
+    } else if (strncasecmp(flag, "VID=", 4) == 0) {
+      if (parse_volume_id(flag + 4, &u) != PARSEINT_OK) bad_usage1("invalid FAT volume ID in flag", flag);
+      if (had_volume_id && fp.volume_id != u) bad_usage0("conflicting FAT volume IDs specified");
+      fp.volume_id = u;
+      had_volume_id = 1;
     } else if (strncasecmp(flag, "FC=", 3) == 0) {
       if (parse_ud(flag + 3, &u) != PARSEINT_OK) { error_invalid_integer:
         bad_usage1("invalid integer in flag", flag);
@@ -1075,6 +1104,7 @@ int main(int argc, char **argv) {
   if (argfn[1]) bad_usage0("multiple output filenames specified");
   sfn = *argfn;
 
+  if (!had_volume_id) fp.volume_id = 0x1234abcd;
   if (!fp.fat_fstype) {  /* Autodetect. */
     fp.fat_fstype = log2_size < 0 ? 12 : log2_size <= 31 ? 16 : 32;  /* Use FAT16 for up to 2 GiB, use FAT32 for anything larger. FAT16 doesn't support more than 2 GiB. */
   }
