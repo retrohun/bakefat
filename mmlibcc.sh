@@ -73,6 +73,15 @@ for src in "$@"; do
       exit 2
     fi
     ;;
+   *.nasm)
+    read line <"$src" || exit 2
+    # To disable NASM optimization in the source file, specify nasm:-O0 somewhere in the first line. The default is maximum optimization (-Oz).
+    oflag="$(IFS=" 	"; oflag=-Oz; for spec in $line; do case "$spec" in nasm:-O[0-9z]*) oflag="${spec#*:}" ;; esac; done; test "$oflag" = -Oz && oflag=-O999999999; echo "$oflag")"
+    if ! "$nasm" $oflag -w+orphan-labels -f obj $osd $confefs -o "$obj" "$src"; then
+      echo "fatal: nasm failed" >&2
+      exit 2
+    fi
+    ;;
    *) echo "fatal: unknown type of source file: $src" >&2; exit 1
   esac
   wlinkfargs="$wlinkfargs$NL""f$NL$obj"
