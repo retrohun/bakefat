@@ -310,14 +310,35 @@ Here is how to create floppy images using NASM only:
 
 ## The bakefat command line
 
-The get a full list of supported command-line flags, run `bakefat help` or
-`bakefat --help`.
+The minimum bakefat command looks like `bakefat <size> <outfile.img>`, for
+example `bakefat 1200K myfd.img` creates a floppy image and `bakefat 256M
+myhd.img` creates a hard disk image. In addition to these, you may want to
+specify a compatibility flag, for example use `bakefat 32M DOS3.3 myhd.img`
+to create a hard disk image compatible with MS-DOS 3.30 and IBM PC DOS 3.30.
 
-Each bakefat invocation creates or overwrites a FAT filesystem image file.
+The size suffix `K` indicates both kilobytes (1024 bytes), floppy image and
+FAT12 filesystem. It specifies the exact image size. The amount of free
+space will be smaller, because the filesystem metadata (boot sector, FAT
+tables, root directory etc.) also occupies space. (You can also specify
+*FAT12* explicitly, but it's not necessary.)
+
+The size suffixes `M` (megabytes, 1024**2 bytes), `G` (gigabytes, 1024**3
+bytes), `T` (terabytes, 1024**4 bytes) are approximate, and they indicate
+hard disk image and either FAT16 or FAT32 filesystem. (The default is FAT16
+up to *2G*, and then FAT32, but you can specify *FAT16* or *FAT32*
+explicitly.)
+
+In front of the `<outfile.img>` arguments you can specify additional
+command-line flags to customize some filesystem parameters and to ensure and
+check compatibility with various operating system. The get a full list of
+supported command-line flags, run `bakefat help` or `bakefat --help`.
+
+Each bakefat invocation creates or overwrites a FAT filesystem image file
 The bakefat command-line consists of one or more flags, and it ends with the
-filename of the image file. The order of flags doesn't matter. bakefat
-reports an error if conflicting flag values are specified (such as *720K*
-and *FAT16*).
+filename of the image file. The prefix characters `-` and `/` are ignored in
+each flag. The order of flags doesn't matter. bakefat reports an error if
+conflicting flag values are specified (such as *720K* and *FAT16*). Flags are
+case insensitive.
 
 ## Compatibility and limitations
 
