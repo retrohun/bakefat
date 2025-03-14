@@ -10,8 +10,9 @@
  * !! doc: Check wheter MS-DOS 8.0 needs the first 4 sectors of io.sys to be contiguous.
  * !! doc: Can VirtualBox open with .img, without VBOX_E_OBJECT_NOT_FOUND? Or just .vhd extension?
  * !! Add boot sector for booting Windows NT--2000--XP (ntldr) from FAT16 and FAT32.
- * !! Add DOS 8086 port (bakefat.exe). (Make sure it compiles with owcc -bpmodew etc.)
- * !! Write directly to device, clear existing FAT table (cluster chain pointers) and first root directory entry.
+ * !! Add 32-bit DOS port bakefatdexe. (Make sure it compiles with owcc -bpmodew etc.)
+ * !! Write directly to block device on Unix (how to resize it?), clear existing FAT table (cluster chain pointers) and first root directory entry.
+ * !! Write directly to block device on DOS (specified as e.g. a:, c:).
  * !! Exclude FAT header and partition table from boot_bin, making it shorter.
  * !! Add implementation using <windows.h>, which compiles with MSVC, Borland C compiler and Digital Mars C compiler in addition to OpenWatcom C compiler.
  * !! Add support for VHD_SPARSE (SPARSEVHD). !! Experiment with block sizes smaller than 2 MiB. (NTFS sparse files have block size 64 KiB.)
@@ -41,7 +42,8 @@
 #  include <string.h>
 #  include <strings.h>  /* strcasecmp(...). */
 #  include <stdlib.h>
-#  if defined(_WIN32) || defined(MSDOS) || defined(__NT__)
+#  if defined(_WIN32) || defined(__NT__) || defined(MSDOS) || defined(__MSDOS__) || defined(__DOS__)
+#    define BAKEFAT_DOS_OR_WIN32 1
 #    include <io.h>
 #  else
 #    include <unistd.h>
@@ -226,7 +228,11 @@
 #else
   /* FreeBSD and musl have 64-bit off_t, lseek(2) and ftruncate(2) by default. Linux libcs (uClibc, EGLIBC, minilibc686) have it with -D_FILE_OFFSET_BITS=64. */
 #  define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
-#  define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
+#  ifdef BAKEFAT_DOS_OR_WIN32
+#    define bakefat_ftruncate64(fd, length) chsize(fd, length)
+#  else
+#    define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
+#  endif
 #  ifdef __MMLIBC386__
 #    ifdef DEBUG
        static void bakefat_set_sparse(int fd) {
@@ -249,6 +255,12 @@
 #define BOOT_OFS_FAT12_OFSS 0x800
 #define BOOT_OFS_END (BOOT_OFS_FAT12_OFSS + 4 * 2)
 
+#if CONFIG_INCBIN_BOOT_BIN  /* GCC + GNU as(1) or Clang. */
+  extern const char boot_bin[];  /* Defined in boot.obj. */
+  /* The default (.text) section is fine. The underscore prefix (of _boot_bin) is needed on _WIN32 and __APPLE__ (macOS etc.). */
+  __asm__(".global boot_bin\nboot_bin:\n.global _boot_bin\n_boot_bin:\n.incbin \"boot.bin\"");
+#endif
+
 #if CONFIG_INCLUDE_BOOT_BIN
   const char boot_bin[] =
 #    include "boot.h"
@@ -258,7 +270,6 @@
   extern const char boot_bin[];  /* Defined in boot.obj. */
 #endif
 
-typedef char assert_sizeof_int[sizeof(int) >= 4 ? 1 : -1];  /* TODO(pts): make printf(3) use the length specifier "l" if int is shorter. */
 typedef char assert_sizeof_uint32_t[sizeof(uint32_t) == 4 ? 1 : -1];
 
 typedef uint8_t ub;
@@ -280,7 +291,7 @@ typedef int32_t sd;
 #else
 #  if defined(__LITTLE_ENDIAN__) || (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) || \
       defined(__ARMEL__) || defined(__THUMBEL__) || defined(__AARCH64EL__) || defined(_MIPSEL) || defined (__MIPSEL) || defined(__MIPSEL__) || \
-      defined(__ia64__) || defined(__LITTLE_ENDIAN) || defined(_LITTLE_ENDIAN) || defined(MSDOS) || defined(__MSDOS__) || IS_X86
+      defined(__ia64__) || defined(__LITTLE_ENDIAN) || defined(_LITTLE_ENDIAN) || defined(MSDOS) || defined(__MSDOS__) || defined(__DOS__) || IS_X86
 #    define IS_LE 1
 #  endif
 #endif
@@ -599,9 +610,9 @@ static void create_fat(const struct fat_params *fpp) {
 
   if (fpp->fat_fstype == 32 && fpp->reserved_sector_count > 1U) {  /* Write fsinfo sector for FAT32. https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#FS_Information_Sector */
     memset(s = sbuf, 0, sizeof(sbuf));
-    dd('R' | 'R' << 8 | 'a' << 16 | 'A' << 24);  /* .header. */
+    dd('R' | 'R' << 8 | (ud)'a' << 16 | (ud)'A' << 24);  /* .header. */
     s += 0x1e0;  /* .reserved. The values are 0. */
-    dd('r' | 'r' << 8 | 'A' << 16 | 'a' << 24);  /* .signature2. */
+    dd('r' | 'r' << 8 | (ud)'A' << 16 | (ud)'a' << 24);  /* .signature2. */
     dd(fpp->fcp.cluster_count - 1);  /* .free_cluster_count. -1 because the root directory occupies 1 cluster. */
     dd(2);  /* .most_recently_allocated_cluster_ofs. The root directory cluster. */
     s += 0xc + 2;  /* .reserved2 and first 2 bytes of .signature3. The values are 0. */
@@ -684,10 +695,10 @@ static void create_fat(const struct fat_params *fpp) {
     dd(-1);  /* next_offset high dword. */
     dd(-1);  /* next_offset low dword. */
     dd(0);  /* modification_time. */
-    dd(fpp->geometry_sector_count > (ud)65535U * 16U * 255U ? (ud)('w' | 'i' << 8 | 'n' << 16 | ' ' << 24) :
-       (ud)('v' | 'p' << 8 | 'c' << 16 | ' ' << 24));  /* creator_application: Typically "qemu" (CHS), "vpc " (CHS), "qem2" (force_size), "win " (force_size). */
+    dd(fpp->geometry_sector_count > (ud)65535U * 16U * 255U ? (ud)('w' | 'i' << 8 | (ud)'n' << 16 | (ud)' ' << 24) :
+       (ud)('v' | 'p' << 8 | (ud)'c' << 16 | (ud)' ' << 24));  /* creator_application: Typically "qemu" (CHS), "vpc " (CHS), "qem2" (force_size), "win " (force_size). */
     ddb(0x50003);  /* creator_version. */
-    dd('W' | 'i' << 8 | '2' << 16 | 'k' << 24);  /* host_os. */
+    dd('W' | 'i' << 8 | (ud)'2' << 16 | (ud)'k' << 24);  /* host_os. */
     dsb(vhd_sector_count);  /* disk_size. */
     dsb(vhd_sector_count);  /* data_size. */
     if (fpp->geometry_sector_count <= (ud)1024U * 16U * 63U) {  /* Compatible with bos BIOS and IDE, <= 504 MiB. */
@@ -739,10 +750,10 @@ static void adjust_hdd_geometry(struct fat_params *fpp, ud fat_clusters_sec_ofs)
   ub mod;
   fpp->fcp.sectors_per_track = 63U;
   fpp->fcp.head_count = heads =
-      (fpp->fcp.sector_count <= 1024U * 16U * 63U) ? 16U :
-      (fpp->fcp.sector_count <= 2048U * 32U * 63U) ? 32U :
-      (fpp->fcp.sector_count <= 4096U * 64U * 63U) ? 64U :
-      (fpp->fcp.sector_count <= 8192U * 128U * 63U) ? 128U : 255U;
+      (fpp->fcp.sector_count <= (ud)1024U * 16U * 63U) ? 16U :
+      (fpp->fcp.sector_count <= (ud)2048U * 32U * 63U) ? 32U :
+      (fpp->fcp.sector_count <= (ud)4096U * 64U * 63U) ? 64U :
+      (fpp->fcp.sector_count <= (ud)8192U * 128U * 63U) ? 128U : 255U;
   hs = fpp->fcp.head_count * 63U;
   cyls = fpp->fcp.sector_count == 0U ? (ud)0 : (fpp->fcp.sector_count - 1U) / hs + 1U;  /* This is round_up_div(fpp->fcp.sector_count, hs), but avoids overflow. */
   fpp->cylinder_count = cyls =
@@ -921,15 +932,15 @@ static noreturn void usage(ub is_help, const char *argv0) {
              "Usage: %s <flag> [...] <outfile.img>\n"
              "Floppy image size flags:%s\n"
              "HDD image size flags:%s\n"
-             "Cluster size flags: 512B%s\n"
+             "Cluster size flags: 512B%s\n%s%s",
+             BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags,
              "Filesystem type flags: FAT12 FAT16 FAT32\n"
              "FAT count flags: 1FAT 2FATS FC=<number>\n"
              "Root directory entry count: RDEC=<number>\n"
              "Reserved sector count: RSC=<number>\n"
-             "Volume ID: VID=<hex-with-hyphen>\n"
+             "Volume ID: VID=<hex-with-hyphen>\n",
              "DOS compatibility flags: DOS3 DOS3.3 DOS4 DOS5 DOS6 DOS7 DOS7.0 DOS7.1 MSDOS7.0 MSDOS7.1 PCDOS7.0 PCDOS7.1 DOS8 WIN95A WIN95OSR2 WIN98 WINME\n"
-             "VHD footer flags: NOVHD VHD\n",
-             BAKEFAT_VERSION, argv0, sbuf, hdd_image_size_flags, cluster_size_flags);
+             "VHD footer flags: NOVHD VHD\n");
   exit(is_help ? 0 : 1);
 }
 
@@ -1246,7 +1257,7 @@ int main(int argc, char **argv) {
       if (fp.fcp.cluster_count == 0xfffeU) fp.fcp.cluster_count -= 10U;  /* Maximum 0xfff4 clusters on a FAT16 filesystem. */
     } else if (fp.fat_fstype == 32) {
       if (log2_size == 41) {  /* Avoid overflows below, make sure that fp.geometry_sector_count fits to ud (32-bit unsigned). */
-        fp.fcp.sector_count = (fp.vhd_mode >= VHD_FIXED ? VHD_MAX_SECTORS : 0xffffffffU) / (255U * 63U) * (255U * 63U);  /* An upper limit. */
+        fp.fcp.sector_count = (fp.vhd_mode >= VHD_FIXED ? VHD_MAX_SECTORS : (ud)0xffffffffU) / (255U * 63U) * (255U * 63U);  /* An upper limit. */
        limit_fat32_by_sector_count:
         if (fp.fcp.sector_count <= fp.hidden_sector_count + fp.reserved_sector_count) goto fatal_no_clusters;
         /* !! TODO(pts): Make hi lower by doing this without ud overflow: (...) * 512U / ((1U << fp.fcp.log2_sectors_per_cluster) + (2U << fp.fat_count)). */
@@ -1264,7 +1275,7 @@ int main(int argc, char **argv) {
           /* This can happen e.g. if a very large fp.fcp.rootdir_entry_count or fp.reserved_sector_count was specified, such as `160K RSC=314'. */
           fatal0("FAT filesystem too small, no space for even a single cluster");
         }
-      } else if (fp.fcp.cluster_count == 0xffffffeU) {
+      } else if (fp.fcp.cluster_count == (ud)0xffffffeU) {
         fp.fcp.cluster_count -= 9U;  /* Maximum 0xffffff5 clusters on a FAT32 filesystem. */
       } else if (log2_size == 37 && fp.vhd_mode >= VHD_FIXED) {
         /* Limit to ~127.498 GiB instead of 128 GiB, for better VHD
@@ -1290,7 +1301,7 @@ int main(int argc, char **argv) {
       goto recalc_sector_count;
     }
 #    if DEBUG
-      if (fp.fcp.cluster_count > (0xffffffffU >> fp.fcp.log2_sectors_per_cluster) ||
+      if (fp.fcp.cluster_count > ((ud)0xffffffffU >> fp.fcp.log2_sectors_per_cluster) ||
           fp.fcp.sector_count <= fat_clusters_sec_ofs ||
           (fp.fcp.cluster_count << fp.fcp.log2_sectors_per_cluster) > fp.fcp.sector_count - fat_clusters_sec_ofs
          ) fatal0("ASSERT_SECTOR_COUNT_OVERFLOW");

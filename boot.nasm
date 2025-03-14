@@ -31,8 +31,10 @@
 %ifidn __OUTPUT_FORMAT__, obj
   section CONST2 USE32 class=DATA align=4  ; Other, non-string-literal .rodata.
 %elifidn __OUTPUT_FORMAT__, elf
+  %define _boot_bin boot_bin
   section .rodata align=1
 %elifidn __OUTPUT_FORMAT__, elf32
+  %define _boot_bin boot_bin
   section .rodata align=1
 %elifidn __OUTPUT_FORMAT__, win32
   section .rdata align=4  ; TODO(pts): What does MSVC 6.0 use?

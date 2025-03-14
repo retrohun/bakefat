@@ -11,9 +11,6 @@ writing boot code to the MBR. After that the user has to copy the system
 files (such as io.sys, command.com and maybe a few more) manually (using
 e.g. Mtools), and the system becomes bootable in the virtual machine.
 
-bakefat is currently **PARTIALLY IMLEMENTED**, this document currently
-describes how it would look like and function.
-
 ## bakefat features and limitations
 
 * bakefat runs on the host system. Installing an emulator is not necessary
@@ -493,8 +490,9 @@ bakefat:
      bakefat boot code. (For example, MS-DOS 3.20 and IBM PC DOS 3.20 boot
      code loads the entire *io.sys* file, not just the first 1536 bytes.)
 
-   If the disk image has been created with the *bakefat ntldr* flag, then
-   the boot sector boot code uses the following load protocol instead:
+   If the disk image has been created with the *bakefat ntldr* flag
+   (currently implemented), then the boot sector boot code uses the
+   following load protocol instead:
 
    * If the file *ntldr* is found, the the boot code uses the Windows NT
      load protocol (for booting Windows NT 3.1--3.5--3.51--4.0, Windows
@@ -519,4 +517,37 @@ These are the bakefat software source and build details:
   sizeof(int) == 2 or == 4.
 * The command-line tool contains the boot code precompiled by NASM as a
   few pieces of binary blob.
-* TODO: On DOS, add an option to write sectors directly to disk.
+
+Build instructions:
+
+* Currently you need a Unix system (including one of Linux, FreeBSD and
+  macOS) to build bakefat.
+* If you want to build it on a non-Unix system, you have to edit the
+  [Makefile](Makefile) first, and you have to install a C compiler (similar
+  enough to GCC or Clang) and a libc (with some POSIX functions).
+* To build bakefat on a Unix system with NASM, GCC and Make installed, run
+  `make bakefat.gcc`, then rename the resulting executable program file
+  *bakefat.gcc* to *bakefat*.
+* To build bakefat on a Unix system with NASM, any C compiler and Make
+  installed, run `make bakefat`, then the resulting executable is *bakefat*.
+  Please note that this is unomptized and unstripped, so you may want to add
+  some C compiler flags, like this: `make clean bakefat CONFFLAGS="-s -O2 -W
+  -Wall -ansi -pedantic"`.
+* To build bakefat on a Unix system with NASM, Clang and Make installed, run
+  `make bakefat.gcc GCC=clang`, then rename the resulting executable program
+  file *bakefat.gcc* to *bakefat*.
+* To build the bakefat release program files for Linux, FreeBSD and Win32 on
+  a Linux i386 (or amd64) system, run `tools/make clean bakefat.lf3
+  bakefat.exe`. This works without installing any build tools, because the
+  build tools are part of the bakefat Git repository. The Linux i386 and
+  FreeBSD i386 executable program (same file) is *bakefat.lf3*, the Win32
+  executable program is *bakefat.exe*.
+* To build the bakefat release program files for Linux, FreeBSD, Win32 and
+  macOS on a Linux i386 (or amd64) system, download
+  [pts-osxcross](https://github.com/pts/pts-osxcross), update the variable
+  *PTS\_OSXCROSS* in the Makefile, then run `tools/make clean release`. The
+  Linux i386 and FreeBSD i386 executable program (same file) is
+  *bakefat.lf3*, the Win32 executable program is *bakefat.exe*, the macOS
+  x86\_64 executable program is *bakefat.darwinc64*, the macOS i386
+  executale program is *bakefat.darwinc32* (works on macOS 10.14 Mojave and
+  earlier).

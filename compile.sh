@@ -14,7 +14,7 @@ shift
 test "$ZSH_VERSION" && set -y 2>/dev/null  # SH_WORD_SPLIT for zsh(1). It's an invalid option in bash(1), and it's harmful (prevents echo) in ash(1).
 set -ex
 
-sh mmlibcc.sh --sh-script-mydir .         "$@" -o bakefat.ld3 bakefat.c boot.nasm  # -march=i386 -Werror -Wno-n201
+sh mmlibcc.sh --sh-script-mydir .         "$@" -o bakefat.lf3 bakefat.c boot.nasm  # -march=i386 -Werror -Wno-n201
 sh mmlibcc.sh --sh-script-mydir . -bwin32 "$@" -o bakefat.exe bakefat.c boot.nasm
 
 : "$0" OK.
