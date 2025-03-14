@@ -27,7 +27,7 @@ wcc386="$mydir"/tools/wcc386-ow2023-03-04.upx
 wlink="$mydir"/tools/wlink-ow1.8.upx
 #busybox1="$mydir"tools/busybox-minicc-1.21.1.upx  # awk gsub(...) is not buggy here.
 
-v=; rd=
+v=; q=-q; opq="op$NL""q" rd=
 cmd() {
   if test "$v"; then
     cmdq="$(exec 2>&1 && set -x && : "$@")"
@@ -61,7 +61,7 @@ while true; do
    -[DU]?*) cdefs="$cdefs$NL$1" ;;
    -o?*) prog="${1#-o}" ;;
    -o) prog="$2"; shift ;;  # Empty string if no such arg, will be checked later.
-   -v) v=1 ;;  # Verbose.
+   -v) v=-v; q=; opq= ;;  # Verbose.
    -*) echo "fatal: unknown command-line flag: $1" >&2; exit 1 ;;
    *) break ;;
   esac
@@ -83,7 +83,7 @@ for src in "$@"; do
    -*) echo "fatal: source filename starts with -: $src" >&2; exit 1 ;;  # This may cause a problem in tools interpreting the filename as a flag.
    *.c)
     # -of+ == gcc -fno-omit-frame-pointer
-    if ! cmd "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj $confdefs $cdefs "$src"; then
+    if ! cmd "$wcc386" $q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj $confdefs $cdefs "$src"; then
       echo "fatal: wcc386 failed" >&2
       exit 2
     fi
@@ -112,41 +112,46 @@ else
 fi
 exit_code=0
 rd="$prog".wlinkerr
-cmd "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs $wlinkfargs n "$wlinkoutfn" || exit_code="$?"
+cmd "$wlink" $opq op start=_cstart_ op noext op nou op nored op d $wlinkargs $wlinkfargs n "$wlinkoutfn" || exit_code="$?"
 rd=
 test "$exit_code" = 0 && test -s "$prog".wlinkerr && exit_code=-1
 if test "$exit_code" != 0; then
-  undefsyms="$(awk '{
+  test "$v" && echo "info: parsing undefined symbols in wlink messages" >&2
+  undefsyms="$(awk 'BEGIN{s=1; if("'"$v"'"){s=0}}
+      {if(s){
       if(/^Error\! E2028: ([^ \t]+) is an undefined reference$/){printf"%c%s",c,$3;c=","}
       else if(/^file /&&/: undefined symbol /){}  # A subset of above.
+      else if(/^creating /){s=0}
       else{print>>"/dev/stderr";printf",?,"}
+      }else if($0=="loading object files"){s=1}
       }
       END{if(c&&c%16==0){printf",,"}}  # Work around segfault-for-16-argument-macro bug in NASM 0.98.39.
       ' <"$prog".wlinkerr)"
   if test "$?" != 0; then
     echo "fatal: wlink error parsing failed" >&2
+    exit 2
   fi
   case "$undefsyms" in
-   *,\?,*) exit 1 ;;  # Found some error messages other than undefined references.
-   "") exit 1 ;;  # Linker failure without undefinded references. This is an internal logic error.
+   *,\?,*) cat <"$prog".wlinkerr >&2; exit 1 ;;  # Found some error messages other than undefined references.
+   "") echo "fatal: undefsyms logic error" >&2; exit 1 ;;  # Linker failure without undefinded references. This is an internal logic error.
   esac
   if ! cmd "$nasm" -O0 -w+orphan-labels -f obj -DUNDEFSYMS="$undefsyms" $osd $confdefs -o "$prog".mu.obj "$mydir"/mmlibc386.nasm; then
     echo "fatal: nasm failed" >&2
     exit 2
   fi
   # We must put  "$prog".mu.obj first, because of the 'ETXT' at the beginning of section CONST.
-  if ! cmd "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "$prog".mu.obj $wlinkfargs n "$wlinkoutfn"; then
+  if ! cmd "$wlink" $opq op start=_cstart_ op noext op nou op nored op d $wlinkargs f "$prog".mu.obj $wlinkfargs n "$wlinkoutfn"; then
     echo "fatal: wlink2 failed" >&2
     exit 2
   fi
 fi
 if test "$os" = win32; then
-  if ! cmd "$perl" -x "$mydir"/fixpe.pl "$prog"; then  # !!! write
+  if ! cmd "$perl" -x "$mydir"/fixpe.pl $v "$prog"; then  # !!! write
     echo "fatal: fixpe failed" >&2
     exit 2
   fi
 else
-  if ! cmd "$perl" -x "$mydir"/rex2elf.pl -b"$os" "$wlinkoutfn" "$prog"; then
+  if ! cmd "$perl" -x "$mydir"/rex2elf.pl $v -b"$os" "$wlinkoutfn" "$prog"; then
     echo "fatal: rex2elf failed" >&2
     exit 2
   fi
@@ -157,6 +162,6 @@ else
 fi
 
 # !! Remove temporary files even on failure.
-rm -f -- $rmfns
+cmd rm -f -- $rmfns
 
 : "$0" OK.

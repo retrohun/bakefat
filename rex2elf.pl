@@ -18,6 +18,7 @@ use strict;
 
 my $org = 0x700000;
 my $osabi = 3;  # Linux.
+my $v = 0;
 for (my $i = 0; $i < @ARGV; ++$i) {
   my $arg = $ARGV[$i];
   if ($arg eq "--") { splice(@ARGV, 0, $i + 1); last }
@@ -25,6 +26,7 @@ for (my $i = 0; $i < @ARGV; ++$i) {
   elsif ($arg eq "-bfreebsd" or $arg eq "-bfreebsdx") { $osabi = 9 }  # FreeBSD.
   elsif ($arg eq "-blinux") { $osabi = 3 }  # Linux.
   elsif ($arg eq "-bsysv") { $osabi = 0 }  # SYSV.
+  elsif ($arg eq "-v") { ++$v }  # More verbose.
   else { die("fatal: unknown command-line flag: $arg\n") }
 }
 die("Usage: $0 [<flag> ...] <input.rex> <output>\n") if @ARGV != 2;
@@ -111,7 +113,7 @@ for my $reloc_addr (@reloc_addrs) {
 substr($_, $data_addr, 4) = "";  # Remove the "DATA" signature.
 substr($_, 0, $text_addr) = $elfhdr;
 write_file($outfn, $_);
-printf(STDERR "info: converted REX %s (%d bytes) to ELF-32 %s (%d bytes)\n", $infn, $insize, $outfn, length($_));
+printf(STDERR "info: converted REX %s (%d bytes) to ELF-32 %s (%d bytes)\n", $infn, $insize, $outfn, length($_)) if $v;
 
 __END__
 
