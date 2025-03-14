@@ -20,6 +20,7 @@
  * !! Add command-line flag RNDUUID, to base the VHD UUID on the result of gettimeofday(2) and getpid(2).
  * !! Move all relevant comments from fat16m.nasm to bakefat.c, and remove fat16m.nasm.
  *
+ * !! Add feature to copy files to the root directory (like mcopy(1)).
  * !! Create io.sys patch for MS-DOS 3.30.
  * !! Release the MS-DOS io.sys patches.
  * !! Add multisector boot code to detect and boot everything.
@@ -229,7 +230,7 @@
   /* FreeBSD and musl have 64-bit off_t, lseek(2) and ftruncate(2) by default. Linux libcs (uClibc, EGLIBC, minilibc686) have it with -D_FILE_OFFSET_BITS=64. */
 #  define bakefat_lseek64(fd, offset, whence) lseek(fd, offset, whence)
 #  ifdef BAKEFAT_DOS_OR_WIN32
-#    define bakefat_ftruncate64(fd, length) chsize(fd, length)
+#    define bakefat_ftruncate64(fd, length) chsize(fd, length)  /* !! On DOS, add manual filling with NUL bytes here, and also for lseek(...). */
 #  else
 #    define bakefat_ftruncate64(fd, length) ftruncate(fd, length)
 #  endif
