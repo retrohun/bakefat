@@ -5,6 +5,8 @@
 #
 # Run it on Linux i386 or amd64: tools/busybox sh compile.sh
 #
+# This build is fully deterministic and reproducible.
+#
 
 test "$0" = "${0%/*}" || cd "${0%/*}"
 export LC_ALL=C  # For deterministic output. Typically not needed.

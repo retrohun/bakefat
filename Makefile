@@ -26,9 +26,11 @@ bakefat.gcc: bakefat.c boot.nasm fat12b.nasm
 release: $(RELEASE)
 extra: $(EXTRA)
 
+# This build target is fully deterministic and reproducible.
 bakefat.lf3: bakefat.c boot.nasm fat12b.nasm mmlibcc.sh mmlibc386.nasm mmlibc386.h  # Linux i386 and FreeBSD i386.
 	./mmlibcc.sh $(CONFFLAGS) -o bakefat.lf3 bakefat.c boot.nasm
 
+# This build target is fully deterministic and reproducible.
 bakefat.exe: bakefat.c boot.nasm fat12b.nasm mmlibcc.sh mmlibc386.nasm mmlibc386.h  # Win32 .exe program.
 	./mmlibcc.sh -bwin32 $(CONFFLAGS) -o bakefat.exe bakefat.c boot.nasm
 
@@ -43,6 +45,7 @@ bakefat.com: bakefat.c boot.nasm fat12b.nasm  # DOS 8086 .com program.
 	$(NASM) -O0 -f obj -DUSE32= -o boot.obj boot.nasm
 	$(OWCC) -bcom -s -Os -fno-stack-check -march=i86 -W -Wall -Wno-n201 $(CONFFLAGS) -o bakefat.com bakefat.c boot.obj
 
+# This build target is fully deterministic and reproducible.
 bakefat.darwinc32: bakefat.c boot.nasm fat12b.nasm
 # boot.nasm includes fat12b.bin.
 	tools/nasm-0.98.39.upx -O0 -w+orphan-labels -f bin $(CONFFLAGS) -o boot.bin boot.nasm
@@ -50,6 +53,7 @@ bakefat.darwinc32: bakefat.c boot.nasm fat12b.nasm
 	$(PTS_OSXCROSS)/i386-apple-darwin14/bin/gcc -mmacosx-version-min=10.5 -march=i686 -nodefaultlibs -lSystem -O2 -ansi -pedantic -W -Wall -DCONFIG_INCBIN_BOOT_BIN $(CONFFLAGS) -o bakefat.darwinc32 bakefat.c
 	$(PTS_OSXCROSS)/i386-apple-darwin14/bin//strip bakefat.darwinc32
 
+# This build target is fully deterministic and reproducible.
 bakefat.darwinc64: bakefat.c boot.nasm fat12b.nasm
 # boot.nasm includes fat12b.bin.
 	tools/nasm-0.98.39.upx -O0 -w+orphan-labels -f bin -o boot.bin boot.nasm

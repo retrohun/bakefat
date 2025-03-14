@@ -538,10 +538,12 @@ Build instructions:
   file *bakefat.gcc* to *bakefat*.
 * To build the bakefat release program files for Linux, FreeBSD and Win32 on
   a Linux i386 (or amd64) system, run `tools/make clean bakefat.lf3
-  bakefat.exe`. This works without installing any build tools, because the
+  bakefat.exe`. (Alternatively, running `tools/busybox sh compile.sh` does
+  the same.) This works without installing any build tools, because the
   build tools are part of the bakefat Git repository. The Linux i386 and
   FreeBSD i386 executable program (same file) is *bakefat.lf3*, the Win32
-  executable program is *bakefat.exe*.
+  executable program is *bakefat.exe*. This build is fully deterministic
+  and reproducible.
 * To build the bakefat release program files for Linux, FreeBSD, Win32 and
   macOS on a Linux i386 (or amd64) system, download
   [pts-osxcross](https://github.com/pts/pts-osxcross), update the variable
@@ -550,4 +552,5 @@ Build instructions:
   *bakefat.lf3*, the Win32 executable program is *bakefat.exe*, the macOS
   x86\_64 executable program is *bakefat.darwinc64*, the macOS i386
   executale program is *bakefat.darwinc32* (works on macOS 10.14 Mojave and
-  earlier).
+  earlier). This build (both the macOS part with pts-osxcross and the
+  non-macOS part) is fully deterministic and reproducible.
