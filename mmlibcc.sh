@@ -27,6 +27,20 @@ wcc386="$mydir"/tools/wcc386-ow2023-03-04.upx
 wlink="$mydir"/tools/wlink-ow1.8.upx
 #busybox1="$mydir"tools/busybox-minicc-1.21.1.upx  # awk gsub(...) is not buggy here.
 
+v=; rd=
+cmd() {
+  if test "$v"; then
+    cmdq="$(exec 2>&1 && set -x && : "$@")"
+    test "$rd" && cmdq="$cmdq >'$rd' 2>&1"  # TODO(pts): Add proper escaping of $rd.
+    echo "+ ${cmdq#+ : }" >&2
+  fi
+  if test "$rd"; then
+    "$@" >"$rd" 2>&1  # Propagate exit code.
+  else
+    "$@"  # Propagate exit code.
+  fi
+}
+
 if test $# = 0 || test "$1" == --help; then
   echo "Usage: $0 [<flag> ...] -o <prog> <src.c> [...]" >&2
   test $# = 0 && exit 1
@@ -47,6 +61,7 @@ while true; do
    -[DU]?*) cdefs="$cdefs$NL$1" ;;
    -o?*) prog="${1#-o}" ;;
    -o) prog="$2"; shift ;;  # Empty string if no such arg, will be checked later.
+   -v) v=1 ;;  # Verbose.
    -*) echo "fatal: unknown command-line flag: $1" >&2; exit 1 ;;
    *) break ;;
   esac
@@ -68,7 +83,7 @@ for src in "$@"; do
    -*) echo "fatal: source filename starts with -: $src" >&2; exit 1 ;;  # This may cause a problem in tools interpreting the filename as a flag.
    *.c)
     # -of+ == gcc -fno-omit-frame-pointer
-    if ! "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj $confdefs $cdefs "$src"; then
+    if ! cmd "$wcc386" -q -s -we -j -ei -ec -bt=linux -fr -zl -zld -e=10000 -zp=4 -3r -os -wx -wce=308 -wcd=201 -D__MMLIBC386__ -D__OPTIMIZE__ -D__OPTIMIZE_SIZE__ $osd -U__LINUX__ $oscd -I"$mydir" -fo=.obj $confdefs $cdefs "$src"; then
       echo "fatal: wcc386 failed" >&2
       exit 2
     fi
@@ -77,7 +92,7 @@ for src in "$@"; do
     read line <"$src" || exit 2
     # To disable NASM optimization in the source file, specify nasm:-O0 somewhere in the first line. The default is maximum optimization (-Oz).
     oflag="$(IFS=" 	"; oflag=-Oz; for spec in $line; do case "$spec" in nasm:-O[0-9z]*) oflag="${spec#*:}" ;; esac; done; test "$oflag" = -Oz && oflag=-O999999999; echo "$oflag")"
-    if ! "$nasm" $oflag -w+orphan-labels -f obj $osd $confefs -o "$obj" "$src"; then
+    if ! cmd "$nasm" $oflag -w+orphan-labels -f obj $osd $confefs -o "$obj" "$src"; then
       echo "fatal: nasm failed" >&2
       exit 2
     fi
@@ -95,7 +110,10 @@ else
   wlinkargs="form phar rex disable 1014"
   wlinkoutfn="$prog".rex
 fi
-"$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs $wlinkfargs n "$wlinkoutfn" >"$prog".wlinkerr 2>&1 || exit_code="$?"
+exit_code=0
+rd="$prog".wlinkerr
+cmd "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs $wlinkfargs n "$wlinkoutfn" || exit_code="$?"
+rd=
 test "$exit_code" = 0 && test -s "$prog".wlinkerr && exit_code=-1
 if test "$exit_code" != 0; then
   undefsyms="$(awk '{
@@ -112,27 +130,27 @@ if test "$exit_code" != 0; then
    *,\?,*) exit 1 ;;  # Found some error messages other than undefined references.
    "") exit 1 ;;  # Linker failure without undefinded references. This is an internal logic error.
   esac
-  if ! "$nasm" -O0 -w+orphan-labels -f obj -DUNDEFSYMS="$undefsyms" $osd $confdefs -o "$prog".mu.obj "$mydir"/mmlibc386.nasm; then
+  if ! cmd "$nasm" -O0 -w+orphan-labels -f obj -DUNDEFSYMS="$undefsyms" $osd $confdefs -o "$prog".mu.obj "$mydir"/mmlibc386.nasm; then
     echo "fatal: nasm failed" >&2
     exit 2
   fi
   # We must put  "$prog".mu.obj first, because of the 'ETXT' at the beginning of section CONST.
-  if ! "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "$prog".mu.obj $wlinkfargs n "$wlinkoutfn"; then
+  if ! cmd "$wlink" op q op start=_cstart_ op noext op nou op nored op d $wlinkargs f "$prog".mu.obj $wlinkfargs n "$wlinkoutfn"; then
     echo "fatal: wlink2 failed" >&2
     exit 2
   fi
 fi
 if test "$os" = win32; then
-  if ! "$perl" -x "$mydir"/fixpe.pl "$prog"; then  # !!! write
+  if ! cmd "$perl" -x "$mydir"/fixpe.pl "$prog"; then  # !!! write
     echo "fatal: fixpe failed" >&2
     exit 2
   fi
 else
-  if ! "$perl" -x "$mydir"/rex2elf.pl -b"$os" "$wlinkoutfn" "$prog"; then
+  if ! cmd "$perl" -x "$mydir"/rex2elf.pl -b"$os" "$wlinkoutfn" "$prog"; then
     echo "fatal: rex2elf failed" >&2
     exit 2
   fi
-  if ! chmod +x "$prog"; then
+  if ! cmd chmod +x "$prog"; then
     echo "fatal: chmod failed" >&2
     exit 2
   fi
