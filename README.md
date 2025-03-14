@@ -527,7 +527,9 @@ Build instructions:
   enough to GCC or Clang) and a libc (with some POSIX functions).
 * To build bakefat on a Unix system with NASM, GCC and Make installed, run
   `make bakefat.gcc`, then rename the resulting executable program file
-  *bakefat.gcc* to *bakefat*.
+  *bakefat.gcc* to *bakefat*. Any GCC + GNU Binutils combination from 2005
+  or later should work. (GNU Binutils >=2.12 is needed for *.incbin*
+  directive support in GNU as(1).)
 * To build bakefat on a Unix system with NASM, any C compiler and Make
   installed, run `make bakefat`, then the resulting executable is *bakefat*.
   Please note that this is unomptized and unstripped, so you may want to add
@@ -538,12 +540,10 @@ Build instructions:
   file *bakefat.gcc* to *bakefat*.
 * To build the bakefat release program files for Linux, FreeBSD and Win32 on
   a Linux i386 (or amd64) system, run `tools/make clean bakefat.lf3
-  bakefat.exe`. (Alternatively, running `tools/busybox sh compile.sh` does
-  the same.) This works without installing any build tools, because the
+  bakefat.exe`. This works without installing any build tools, because the
   build tools are part of the bakefat Git repository. The Linux i386 and
   FreeBSD i386 executable program (same file) is *bakefat.lf3*, the Win32
-  executable program is *bakefat.exe*. This build is fully deterministic
-  and reproducible.
+  executable program is *bakefat.exe*.
 * To build the bakefat release program files for Linux, FreeBSD, Win32 and
   macOS on a Linux i386 (or amd64) system, download
   [pts-osxcross](https://github.com/pts/pts-osxcross), update the variable
@@ -552,5 +552,4 @@ Build instructions:
   *bakefat.lf3*, the Win32 executable program is *bakefat.exe*, the macOS
   x86\_64 executable program is *bakefat.darwinc64*, the macOS i386
   executale program is *bakefat.darwinc32* (works on macOS 10.14 Mojave and
-  earlier). This build (both the macOS part with pts-osxcross and the
-  non-macOS part) is fully deterministic and reproducible.
+  earlier).

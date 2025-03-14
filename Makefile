@@ -17,7 +17,7 @@ bakefat: bakefat.c boot.nasm fat12b.nasm bin2h.c
 	./bin2h boot.bin boot.h
 	$(CC) -DCONFIG_INCLUDE_BOOT_BIN $(CONFFLAGS) -o bakefat bakefat.c
 
-# This is the GCC (or Clang), simple, architecture-independent, cross-compile build. Needed: NASM and GCC.
+# This is the GCC (or Clang), simple, architecture-independent, cross-compile build. Needed: NASM and GCC (including GNU as(1) from GNU Binutils >=2.12, since 2003-03-08).
 bakefat.gcc: bakefat.c boot.nasm fat12b.nasm
 # boot.nasm includes fat12b.bin.
 	$(NASM) -O0 -o boot.bin boot.nasm
