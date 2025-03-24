@@ -246,8 +246,25 @@ Boot sector code #2:
     * !! What other registers to set (DS, SS, BP, SI)? !! Test.
     * Load the file to 0x800:0. Set DL to the drive number. Jump to
       0:0x8200. (The exact segment-offset split doesn't matter.)
+    * It's OK to skip the first 0x200 bytes of the file when loading,
+      so just load the rest of the file to 0x820:0.
     * Source code for the entry point (0:0x8200) is in stage2/asm.S.
     * Source for the (here unused) code at 0:0x8000 is in stage2/start.S.
+    * stage2 (file offset 0) is loaded to linear address 0x7c00 (derived
+      from global variable offsets in the binary image). !! Do we have to
+      fill from 0x7c00 to 0x8200 with NUL bytes?
+  * `ldlinux.sys`: SYSLINUX 4.07 ldlinux.sys.
+    * Newer versions of SYSLINUX (i.e. >=5.00) use multiple kernel files.
+    * Load the partition boot sector to 0x7c00...0x7e00. Overwrite
+      .hidden_sector_count??
+    * Set up variables on stack: 0x7b60..0x7c00, including the boot drive
+      number. This may be version-specific, i.e. other than 4.07 may not
+      work.
+    * Load the *ldlinux.sys* kernel file to 0x8000, jump to 0:0x8030 (or any
+      segment-offset variation). The jump target address may be
+      version-specific. This can be guessed by finding the far jump
+      (something like `jmp 0:0x8035`) near the beginning of *ldlinux.sys*.
+
 * Maybe it will boot this in the future:
   * `drbio.sys`: EDR-DOS (Enhanced DR-DOS) >=7.01.07.
     * This is very similar to the MS-DOS v6 load protocol.
@@ -260,6 +277,7 @@ Boot sector code #2:
       measure, set SS := DS. Jump to 0x70:0.
   * `core.img`: GRUB 2.
     * https://en.wikipedia.org/wiki/GNU_GRUB#Version_2_(GRUB_2)
+    * !! What is the load protocol? How is the boot drive passed?
 * !! Stop parsing the root directory at the first NUL byte. Also patch
   other boot sectors.
 
@@ -809,5 +827,18 @@ To-be supported filesystem size presets:
   cluster size            0x1000     0x2000     0x4000     0x8000     0x2000     0x4000     0x8000
   sectors per cluster          8       0x10       0x20       0x40       0x10       0x20       0x40
   sectors per FAT       0x200000   0x100000    0x80000    0x40000   0x200000   0x100000    0x80000
+
+---
+
+Info about the BIOS drive number:
+
+* First floppy: 0, second floppy: 1 etc. First HDD: 0x80, second HDD: 0x81 etc.
+* The bs, DR-DOS, EDR-DOS and NTLDR load protocols pass it in DL.
+* The FreeDOS load protocol passes it in BL.
+* The DR-DOS 7.03 boot sector passes it in DL only.
+* The EDR-DOS 7.01.08 boot sector passes it in both BL and DL (BL is unnecessary).
+* The FreeDOS (checked versions 1.0--1.1--1.2--1.3) and SvarDOS (checked version 20240915) boot sector passes it in both BL and DL (DL is unnecessary).
+* The FreeDOS (checked version 1.3) kernel gets it from BL.
+* The SvarDOS (checked version 20240915) gets it from BL if the initial CS is 0x60 (FreeDOS load protocol), and from DL if the initial CS is 0x70 (DR-DOS load protocol).
 
 ---
