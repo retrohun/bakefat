@@ -25,6 +25,7 @@
  * !! Release the MS-DOS io.sys patches.
  * !! Add multisector boot code to detect and boot everything.
  * !! Add fixup to the multisector boot code to load the entire *io.sys* (or *ibmbio.com*), autodetect the end of MSLOAD, and delete MSLOAD. The benefit is that io.sys can be fragmented. This has to be smart (detect the near jmp? DOS 3.30 doesn't have it), also for small-io-sys.
+ * !! Make the boot sectors boot from 0x07c0:0 (some buggy BIOS, according to the GRUB 1 0.97 stage1/stage1.S soure code).
  */
 
 #ifndef _FILE_OFFSET_BITS
