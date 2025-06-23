@@ -1690,13 +1690,13 @@ section _TEXT
     .bad_handle:
 		push byte -2  ; 254.
 		call _ExitProcess@4  ; Doesn't return.
-                  ; Not reached.
+		; Not reached.
   %endif
 %endif
 
 %ifdef __NEED_handle_from_fd
   %ifdef OS_WIN32
-    handle_from_fd:  ; Inputs: EAX: fd; Outputs: EAX: handle or NULL if not found. Equivalent to OpenWatcom int __watcall _get_osfhandle(int fd.).
+    handle_from_fd:  ; Inputs: EAX: fd; Outputs: EAX: handle or NULL if not found. Equivalent to OpenWatcom int __watcall _get_osfhandle(int fd).
 		cmp eax, byte CONFIG_FILE_HANDLE_COUNT
 		jnc short .bad
 		mov eax, [fd_handles+eax*4]
