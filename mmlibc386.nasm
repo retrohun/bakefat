@@ -2653,7 +2653,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push edx  ; Save.
 		mov eax, fd_handles
       .next_slot:
-		cmp [eax], byte 0
+		cmp dword [eax], byte 0
 		je short .found_slot
 		add eax, byte 4
 		cmp eax, fd_handles.end
@@ -2989,7 +2989,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push ecx  ; Save.
 		push edx  ; Save.
 		mov eax, fd_handles
-    .next_slot:	cmp [eax], byte 0
+    .next_slot:	cmp dword [eax], byte 0
 		je short .found_slot
 		add eax, byte 4
 		cmp eax, fd_handles.end
