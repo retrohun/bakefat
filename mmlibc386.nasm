@@ -663,7 +663,7 @@ section _TEXT
       __argc:  ; Referenced (but not used) by wcc386(1) if main_ is defined. Actual value doesn't matter.
 		call _GetCommandLineA@0  ; EAX := pointer to NUL-terminated command-line string.  ; Ruins EDX and ECX.
 		xor ecx, ecx  ; ECX := 0 (current argc).
-		push 0	; NULL marks end of argv array.
+		push byte NULL  ; NULL marks end of argv array.
       .argv_next:
 		mov edx, eax  ; Save EAX (remaining command line).
 		call parse_first_arg
@@ -680,7 +680,7 @@ section _TEXT
 		push edx
 		lea edx, [eax-4]
       .rnext1:	add edx, byte 4
-		cmp dword [edx], 0
+		cmp dword [edx], byte 0
 		jne short .rnext1
 		cmp edx, eax
 		je short .rnothing
