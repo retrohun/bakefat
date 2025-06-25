@@ -2347,7 +2347,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
   %endif
 %endif
 
-%macro ret_nonzero_as_minus_one_pop_edx_ecx 0  ; Return 0 on nonzero EAX; return -1 otherwise. Pop EDX and ECX before returning. Implement only once.
+%macro ret_zero_as_minus_one_pop_edx_ecx 0  ; Return 0 on nonzero EAX; return -1 otherwise. Pop EDX and ECX before returning. Implement only once.
   %ifdef rnasmoee
     jmp short rnasmoee
   %else
@@ -2379,7 +2379,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		xchg ecx, [fd_handles+eax*4]  ; Set handle to NULL in fd_handles, marking it as free for subsequent open(2).
 		push ecx  ; Old handle.
 		call _CloseHandle@4  ; Ruins EDX and ECX.
-		ret_nonzero_as_minus_one_pop_edx_ecx
+		ret_zero_as_minus_one_pop_edx_ecx  ; _CloseHandle@4 returns nonzero on success.
   %else
 		push byte 6  ; FreeBSD i386 and Linux i386 SYS_close.
 		jmp short simple_syscall3_WAT
@@ -2421,7 +2421,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push edx  ; Save.
 		push eax  ; Argument pathname.
 		call _DeleteFileA@4  ; Ruins EDX and ECX.
-		ret_nonzero_as_minus_one_pop_edx_ecx
+		ret_zero_as_minus_one_pop_edx_ecx
   %else
 		push byte 10  ; FreeBSD i386 and Linux i386 SYS_unlink.
 		jmp short simple_syscall3_WAT
@@ -2441,7 +2441,7 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push eax  ; Argument oldpath of _MoveFileA@8.
 		;call _MoveFileExA@12  ; Ruins EDX and ECX.
 		call _MoveFileA@8  ; Ruins EDX and ECX.
-		ret_nonzero_as_minus_one_pop_edx_ecx
+		ret_zero_as_minus_one_pop_edx_ecx
   %else
 		push byte 38  ; FreeBSD i386 and Linux i386 SYS_unlink.
 		jmp short simple_syscall3_WAT
@@ -2679,8 +2679,11 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
       .open:	push dword [esp+10*4]  ; lpFileName.
 		call _CreateFileA@28  ; Ruins EDX and ECX.
 		pop ecx  ; ECX := slot pointer within fd_handles.
-		cmp eax, byte INVALID_HANDLE_VALUE
-		je short .done
+		sub eax, byte 1
+		jc short .done  ; Return -1 if _CreateFileA@28 has reaturned a NULL handle. (This is unusual.)
+		inc eax
+		cmp eax, byte INVALID_HANDLE_VALUE  ; -1.
+		je short .done  ; Return -1 if _CreateFileA@28 has reaturned a NULL handle. (This is typical for _CreateFileA@28 to report an error.)
 		mov [ecx], eax  ; Save handle to fd_handles.
 		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
 		sub eax, dword fd_handles
@@ -3032,8 +3035,12 @@ WEAK..___M_start_flush_opened:   ; Fallback, tools/elfofix will convert it to a 
 		push dword [esp+10*4]  ; lpFileName.
 		call _CreateFileA@28  ; Ruins EDX and ECX.
 		pop ecx  ; Restore ECX := slot pointer within fd_handles.
-		cmp eax, byte INVALID_HANDLE_VALUE
-		je short .done  ; !! If it fails with CREATE_NEW (such as always in WDOSX), check and fail if the file eixsts (GetFileAttributesA returns nonzero), otherwise retry with CREATE_ALWAYS. This is non-reentrant workaround.
+		sub eax, byte 1
+		jc short .done  ; Return -1 if _CreateFileA@28 has reaturned a NULL handle. (This is unusual.)
+		inc eax
+		cmp eax, byte INVALID_HANDLE_VALUE  ; -1.
+		je short .done  ; Return -1 if _CreateFileA@28 has reaturned a NULL handle. (This is typical for _CreateFileA@28 to report an error.)
+		; !! If it fails with CREATE_NEW (such as always in WDOSX), check and fail if the file eixsts (GetFileAttributesA returns nonzero), otherwise retry with CREATE_ALWAYS. This is non-reentrant workaround.
 		mov [ecx], eax  ; Save handle to fd_handles.
 		xchg eax, ecx  ; EAX := slot pointer within fd_handles; ECX := junk.
 		sub eax, dword fd_handles
