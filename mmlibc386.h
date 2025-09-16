@@ -158,7 +158,7 @@ void __watcall maybe_fflush_stdout(void);
 void __watcall printf_void(const char *format, ...);
 
 ssize_t __watcall read(int fd, void *buf, size_t count);
-ssize_t __watcall write(int fd, const char *buf, size_t count);
+ssize_t __watcall write(int fd, const void *buf, size_t count);
 int __watcall isatty(int fd);
 int __watcall open(const char *pathname, int flags, ...);  /* Optional 3rd argument: mode_t mode */
 #if _FILE_OFFSET_BITS == 64
