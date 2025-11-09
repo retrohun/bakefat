@@ -117,15 +117,15 @@ rd=
 test "$exit_code" = 0 && test -s "$prog".wlinkerr && exit_code=-1
 if test "$exit_code" != 0; then
   test "$v" && echo "info: parsing undefined symbols in wlink messages" >&2
-  undefsyms="$(awk 'BEGIN{s=1; if("'"$v"'"){s=0}}
-      {if(s){
-      if(/^Error\! E2028: ([^ \t]+) is an undefined reference$/){printf"%c%s",c,$3;c=","}
+  undefsyms="$(awk 'BEGIN{t=1; if("'"$v"'"){t=0}}
+      {if(t){
+      if(/^Error\! E2028: ([^ \t]+) is an undefined reference$/){printf"%c%s",s,$3;s=",";++c}
       else if(/^file /&&/: undefined symbol /){}  # A subset of above.
-      else if(/^creating /){s=0}
+      else if(/^creating /){t=0}
       else{print>>"/dev/stderr";printf",?,"}
-      }else if($0=="loading object files"){s=1}
+      }else if($0=="loading object files"){t=1}
       }
-      END{if(c&&c%16==0){printf",,"}}  # Work around segfault-for-16-argument-macro bug in NASM 0.98.39.
+      END{if(c&&c%16==0){printf",,"}}  # ,, to work around segfault-for-16-argument-macro bug in NASM 0.98.39.
       ' <"$prog".wlinkerr)"
   if test "$?" != 0; then
     echo "fatal: wlink error parsing failed" >&2
